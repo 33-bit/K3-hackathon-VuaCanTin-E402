@@ -5,7 +5,24 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import Settings
-from app.worker import BackgroundWorker
+from app.ingestion import BlockKind, ParsedBlock, ParsedSlide
+from app.worker import BackgroundWorker, _raw_slide_text
+
+
+def test_raw_slide_text_removes_postgres_unsupported_null_bytes() -> None:
+    slide = ParsedSlide(
+        number=1,
+        title="Intro\x00",
+        blocks=(
+            ParsedBlock(
+                kind=BlockKind.PARAGRAPH,
+                text="Customer\x00 outcome",
+                reading_order=0,
+            ),
+        ),
+    )
+
+    assert _raw_slide_text(slide) == "Intro\n\nCustomer outcome"
 
 
 @pytest.mark.asyncio

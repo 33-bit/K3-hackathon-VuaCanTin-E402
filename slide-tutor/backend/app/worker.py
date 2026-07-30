@@ -27,6 +27,7 @@ from app.db.models import (
 from app.db.session import get_engine, get_session_factory
 from app.ingestion import (
     IngestionError,
+    ParsedSlide,
     TextlessDocumentError,
     chunk_deck,
     normalize_deck,
@@ -40,6 +41,14 @@ from app.services.qdrant_store import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _raw_slide_text(slide: ParsedSlide) -> str:
+    """Build source text while removing characters PostgreSQL cannot store."""
+
+    return "\n\n".join(
+        [slide.title, *(block.text for block in slide.blocks)]
+    ).replace("\x00", "").strip()
 
 
 class BackgroundWorker:
@@ -204,12 +213,7 @@ class BackgroundWorker:
         )
         normalized = normalize_deck(parsed, version_id)
         chunk_data = chunk_deck(normalized)
-        raw_by_number = {
-            slide.number: "\n\n".join(
-                [slide.title, *(block.text for block in slide.blocks)]
-            ).strip()
-            for slide in parsed.slides
-        }
+        raw_by_number = {slide.number: _raw_slide_text(slide) for slide in parsed.slides}
 
         slides: list[Slide] = []
         blocks: list[SlideBlock] = []
