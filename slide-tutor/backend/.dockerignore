@@ -1,0 +1,12 @@
+.env
+.git
+.gitignore
+.migration_tmp.db
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+data
+htmlcov
+.coverage

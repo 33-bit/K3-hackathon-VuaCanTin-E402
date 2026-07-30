@@ -1,0 +1,154 @@
+name: slide-tutor-backend
+
+x-backend-base: &backend-base
+  build:
+    context: .
+    target: runtime
+  env_file:
+    - .env.example
+    - path: .env
+      required: false
+  networks:
+    - backend
+  init: true
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-slide_tutor}
+      POSTGRES_USER: ${POSTGRES_USER:-slide_tutor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-slide_tutor}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready
+          --username "$${POSTGRES_USER}"
+          --dbname "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - backend
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-replace-with-a-long-random-value}
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bash -c ':> /dev/tcp/127.0.0.1/6333'"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  migrate:
+    <<: *backend-base
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *backend-base
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - uploads:/app/data/uploads
+      - migration_records:/app/data/qdrant-migrations
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *backend-base
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - uploads:/app/data/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  test:
+    <<: *backend-base
+    profiles: ["tools"]
+    build:
+      context: .
+      target: development
+    command: ["pytest", "-q"]
+    environment:
+      APP_ENV: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  qdrant_storage:
+  uploads:
+  migration_records:
+
+networks:
+  backend:
+    driver: bridge
