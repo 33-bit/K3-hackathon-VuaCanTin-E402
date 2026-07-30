@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -39,6 +40,17 @@ class QueryStubOpenAIService(OpenAIService):
             "intent": "explain",
             "slide_start": None,
             "slide_end": None,
+        }
+
+
+class NullOptionalListsOpenAIService(OpenAIService):
+    async def _json_completion(self, **_: Any) -> dict[str, Any]:
+        return {
+            "answer": "Grounded answer",
+            "citation_chunk_ids": ["00000000-0000-0000-0000-000000000123"],
+            "confidence": "high",
+            "insufficient_evidence": False,
+            "missing_content_types": None,
         }
 
 
@@ -84,3 +96,25 @@ async def test_empty_context_answer_respects_requested_language() -> None:
     assert answer.confidence == "low"
     assert answer.citation_chunk_ids == []
     assert answer.answer.startswith("The slide text")
+
+
+@pytest.mark.asyncio
+async def test_null_optional_lists_do_not_crash_structured_answer_parsing() -> None:
+    chunk_id = UUID("00000000-0000-0000-0000-000000000123")
+    service = NullOptionalListsOpenAIService(Settings(_env_file=None))
+
+    answer = await service.generate_answer(
+        question="Explain this",
+        language="en",
+        contexts=[
+            {
+                "chunk_id": str(chunk_id),
+                "slide_number": 1,
+                "text": "Grounded evidence",
+            }
+        ],
+    )
+
+    assert answer.answer == "Grounded answer"
+    assert answer.citation_chunk_ids == [chunk_id]
+    assert answer.missing_content_types == []

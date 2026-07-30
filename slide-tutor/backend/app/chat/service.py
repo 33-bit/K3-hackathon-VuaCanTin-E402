@@ -52,6 +52,7 @@ class ChatService:
             version=context.version,
             course_id=request.course_id,
             deck_id=request.deck_id,
+            deck_title=context.deck.title,
             current_slide_id=request.current_slide_id,
             selected_text=request.selected_text,
             question=request.question,
@@ -69,28 +70,48 @@ class ChatService:
             }
             for chunk in retrieval_result.chunks
         ]
-        generated = await self.llm.generate_answer(
-            question=request.question,
-            language=request.language,
-            contexts=contexts,
+        direct_response = retrieval_result.query.response_mode != "answer"
+        generation_question = (
+            retrieval_result.query.generation_question or request.question
         )
-        generated = await self._validate_and_repair(
-            question=request.question,
-            language=request.language,
-            contexts=contexts,
-            generated=generated,
-        )
-        if generated.insufficient_evidence or not generated.answer.strip():
-            missing_content_types = generated.missing_content_types
-            generated = _safe_insufficient_answer(request.language)
-            generated.missing_content_types = missing_content_types
+        if direct_response:
+            generated = _direct_decision_answer(
+                answer=retrieval_result.query.direct_answer,
+                response_mode=retrieval_result.query.response_mode,
+                force_insufficient=retrieval_result.query.force_insufficient,
+                language=request.language,
+            )
+        else:
+            generated = await self.llm.generate_answer(
+                question=generation_question,
+                language=request.language,
+                contexts=contexts,
+            )
+            generated = await self._validate_and_repair(
+                question=generation_question,
+                language=request.language,
+                contexts=contexts,
+                generated=generated,
+            )
+            if generated.insufficient_evidence or not generated.answer.strip():
+                missing_content_types = generated.missing_content_types
+                generated = _safe_insufficient_answer(request.language)
+                generated.missing_content_types = missing_content_types
 
         allowed_ids = {chunk.id for chunk in retrieval_result.chunks}
         cited_ids = [
             chunk_id for chunk_id in generated.citation_chunk_ids if chunk_id in allowed_ids
         ]
-        if not cited_ids and not generated.insufficient_evidence:
+        if not direct_response and not cited_ids and not generated.insufficient_evidence:
             generated = _safe_insufficient_answer(request.language)
+        if retrieval_result.query.notices:
+            generated.answer = _append_notices(
+                generated.answer,
+                retrieval_result.query.notices,
+            )
+            if retrieval_result.query.force_insufficient:
+                generated.insufficient_evidence = True
+                generated.confidence = "low"
 
         citations = _build_citations(
             chunk_ids=cited_ids,
@@ -229,3 +250,29 @@ def _safe_insufficient_answer(language: str) -> GeneratedAnswer:
         insufficient_evidence=True,
         missing_content_types=[],
     )
+
+
+def _direct_decision_answer(
+    *,
+    answer: str | None,
+    response_mode: str,
+    force_insufficient: bool,
+    language: str,
+) -> GeneratedAnswer:
+    if not answer:
+        return _safe_insufficient_answer(language)
+    insufficient = force_insufficient or response_mode in {"clarify", "insufficient"}
+    return GeneratedAnswer(
+        answer=answer,
+        citation_chunk_ids=[],
+        confidence="low" if insufficient else "medium",
+        insufficient_evidence=insufficient,
+        missing_content_types=[],
+    )
+
+
+def _append_notices(answer: str, notices: list[str]) -> str:
+    unique_notices = list(dict.fromkeys(item.strip() for item in notices if item.strip()))
+    if not unique_notices:
+        return answer
+    return f"{answer.rstrip()}\n\n" + "\n".join(unique_notices)

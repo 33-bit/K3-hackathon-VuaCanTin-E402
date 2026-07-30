@@ -19,6 +19,7 @@ from app.db import repositories
 from app.db.models import Chunk, DeckVersion, Slide
 from app.services.openai_service import LLMProvider, QueryUnderstanding
 
+from .query_policy import normalize_range_query, route_query
 from .selected_text_matcher import SelectedTextMatch, match_selected_text
 
 logger = structlog.get_logger(__name__)
@@ -85,6 +86,7 @@ class RetrievalService:
         question: str,
         language: str,
         explicit_ranges: Sequence[tuple[int, int]] = (),
+        deck_title: str = "",
     ) -> RetrievalResult:
         total_started = time.perf_counter()
         slides = await repositories.get_slides_for_version(session, deck_version_id=version.id)
@@ -95,31 +97,71 @@ class RetrievalService:
 
         blocks = await repositories.get_slide_blocks(session, slide_id=current_slide_id)
         selected_match = match_selected_text(selected_text, blocks)
+        first_slide_title = slides[0].title if slides else None
         # End the read transaction before calling external model/vector services.
         await session.commit()
 
         understanding_started = time.perf_counter()
-        if explicit_ranges:
-            start = min(item[0] for item in explicit_ranges)
-            end = max(item[1] for item in explicit_ranges)
-            query = QueryUnderstanding(
-                rewritten_query=question,
-                scope="range",
-                intent="range_summary",
-                slide_start=start,
-                slide_end=end,
-            )
-        else:
+        query = route_query(
+            question=question,
+            selected_text=selected_text,
+            explicit_ranges=explicit_ranges,
+            language=language,
+            deck_title=deck_title,
+            first_slide_title=first_slide_title,
+            current_slide_title=current_slide.title,
+            slide_count=len(slides),
+        )
+        if query is None:
             try:
                 query = await self.llm.understand_query(
                     question=question,
                     selected_text=selected_text,
                     current_slide_title=current_slide.title,
                     language=language,
+                    deck_title=deck_title,
+                    first_slide_title=first_slide_title,
+                    slide_count=len(slides),
+                    current_slide_number=current_slide.slide_number,
                 )
             except GenerationProviderUnavailableError:
                 query = QueryUnderstanding(rewritten_query=question)
+            query = normalize_range_query(
+                query,
+                question=question,
+                slide_count=len(slides),
+                language=language,
+            )
         understanding_ms = _elapsed_ms(understanding_started)
+
+        if query.response_mode != "answer":
+            logger.info(
+                "query_resolved_without_retrieval",
+                active_deck_version_id=str(version.id),
+                response_mode=query.response_mode,
+                reason_code=query.reason_code,
+                total_ms=_elapsed_ms(total_started),
+            )
+            return RetrievalResult(
+                query=query,
+                chunks=[],
+                slides={},
+                selected_match=selected_match,
+                candidates_debug=[],
+                filters_debug={
+                    "course_id": str(course_id),
+                    "deck_id": str(deck_id),
+                    "deck_version_id": str(version.id),
+                    "response_mode": query.response_mode,
+                    "reason_code": query.reason_code or "",
+                    "scope": query.scope,
+                    "intent": query.intent,
+                },
+                timings_ms={
+                    "query_understanding": understanding_ms,
+                    "total": _elapsed_ms(total_started),
+                },
+            )
 
         if query.scope == "range":
             requested_ranges = list(explicit_ranges) or [
@@ -172,6 +214,10 @@ class RetrievalService:
                     "course_id": str(course_id),
                     "deck_id": str(deck_id),
                     "deck_version_id": str(version.id),
+                    "response_mode": query.response_mode,
+                    "reason_code": query.reason_code or "",
+                    "scope": query.scope,
+                    "intent": query.intent,
                 },
                 timings_ms={
                     "query_understanding": understanding_ms,
@@ -260,21 +306,27 @@ class RetrievalService:
                 for chunk in current_chunks
                 if block_id in {str(item) for item in chunk.metadata_json.get("block_ids", [])}
             )
-        slide_level = next(
-            (chunk for chunk in current_chunks if chunk.chunk_type == "slide"),
-            None,
-        )
-        if slide_level is not None:
-            forced.append((slide_level, "current_slide"))
-        elif current_chunks:
-            forced.append((current_chunks[0], "current_slide"))
-
-        neighbors = _prefer_slide_chunks(
-            await repositories.get_neighbor_chunks(
-                session,
-                deck_version_id=version.id,
-                slide_number=current_slide.slide_number,
+        force_current_slide = selected_match is not None or query.scope == "current_slide"
+        if force_current_slide:
+            slide_level = next(
+                (chunk for chunk in current_chunks if chunk.chunk_type == "slide"),
+                None,
             )
+            if slide_level is not None:
+                forced.append((slide_level, "current_slide"))
+            elif current_chunks:
+                forced.append((current_chunks[0], "current_slide"))
+
+        neighbors = (
+            _prefer_slide_chunks(
+                await repositories.get_neighbor_chunks(
+                    session,
+                    deck_version_id=version.id,
+                    slide_number=current_slide.slide_number,
+                )
+            )
+            if force_current_slide
+            else []
         )
 
         merged: list[tuple[Chunk, str, float | None]] = []
@@ -324,9 +376,11 @@ class RetrievalService:
                 candidates=candidate_payload,
                 limit=self.settings.retrieval_context_limit,
             )
-            rank_ids = [item.chunk_id for item in reranked]
-            ranked_set = set(rank_ids)
-            rank_ids.extend(chunk.id for chunk, _, _ in merged if chunk.id not in ranked_set)
+            rank_ids = [
+                item.chunk_id
+                for item in reranked
+                if item.relevance >= self.settings.rerank_min_relevance
+            ]
         except GenerationProviderUnavailableError:
             rank_ids = [chunk.id for chunk, _, _ in merged]
         rerank_ms = _elapsed_ms(rerank_started)
@@ -367,6 +421,10 @@ class RetrievalService:
                 "course_id": str(course_id),
                 "deck_id": str(deck_id),
                 "deck_version_id": str(version.id),
+                "response_mode": query.response_mode,
+                "reason_code": query.reason_code or "",
+                "scope": query.scope,
+                "intent": query.intent,
             },
             timings_ms={
                 "query_understanding": understanding_ms,
