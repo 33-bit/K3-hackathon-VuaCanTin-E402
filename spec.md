@@ -85,36 +85,36 @@ Học viên đang học hoặc xem lại bài giảng thường chỉ có ngữ 
 
 ### 2.1 Bảng impact: ít nhất 3 ứng viên
 
-| Ứng viên | Bao nhiêu người gặp (trích evidence) | Tần suất | Tốn gì mỗi lần (phút / điểm / niềm tin) | Khả thi trong sự kiện | Điểm/nhận định | Chọn? |
+| Ứng viên | Bao nhiêu lượt gặp (trích evidence) | Tần suất | Tốn gì mỗi lần (phút / điểm / niềm tin) | Khả thi trong sự kiện | Điểm/nhận định | Chọn? |
 |---|---|---|---|---|---|---|
-| [Ứng viên 1] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| [Ứng viên 2] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| [Ứng viên 3] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| A. Giải thích đoạn bôi đen hoặc câu hỏi theo slide hiện tại, có kết nối slide liên quan và citation | 4/71 lượt evidence có ý định giải thích rõ ràng. | 0,3% trên 1.261 lượt hỏi-đáp; lưu ý tập 71 được thiết kế ưu tiên nhu cầu tổng hợp rộng nên số này không đại diện toàn bộ nhu cầu giải thích. | Học viên phải tự mở các slide liên quan và tự ghép ngữ cảnh; dễ hiểu thiếu một phần định nghĩa, ví dụ hoặc mối liên hệ. Chưa đo số phút thực tế. | Cao: pipeline đã có selected text/current slide, hybrid retrieval, rerank và citation; phù hợp text-only, có thể demo trong 10 giờ. | Tác động có thật nhưng evidence trực tiếp trong tập multi-slide hiện tại thấp. | [ ] |
+| B. Tóm tắt một mục hoặc dải slide theo cấu trúc, có slide nguồn cho các ý chính | 66/71 lượt evidence có ý định tóm tắt hoặc tổng hợp. Trong đó 33 lượt nhận phản hồi lỗi truy xuất/vượt phạm vi tóm tắt. | 5,2% trên 1.261 lượt hỏi-đáp; chiếm 93,0% tập evidence multi-slide. | Học viên phải tự lật và ghép nhiều slide, khó biết còn thiếu phần nào, mất mạch học và khó kiểm nguồn. Chưa đo số phút thực tế. | Cao: pipeline đã chạy được, có intent `multi_slide_summary`, tải slide theo thứ tự và citation; chỉ dùng text trích xuất từ PPTX/PDF. | Tín hiệu nhu cầu và khoảng trống hiện tại mạnh nhất; phù hợp mục tiêu cân bằng impact và khả thi. | [x] |
+| C. Chỉ rõ slide nguồn cho câu trả lời và báo thiếu căn cứ khi text không đủ | 59/71 lượt evidence có phản hồi hiện tại với dưới 2 citation; đây là chỉ số chất lượng/audit gap, không phải số lượt user yêu cầu trực tiếp. | 83,1% trong tập evidence có grounding đa nguồn chưa đủ. | Học viên không thể tự kiểm câu trả lời đến từ slide nào, dễ tin vào nội dung thiếu căn cứ hoặc phải tìm lại nguồn. | Cao: pipeline đã có Citation Validator và nhánh báo thiếu căn cứ; phù hợp text-only, có thể demo trong 10 giờ. | Là điều kiện tin cậy bắt buộc, nhưng tự nó không hoàn thành job “hiểu/tóm tắt một mục học”. | [ ] |
 
 ### 2.2 Ứng viên đã loại
 
-| Ứng viên | Lý do loại (dựa trên bằng chứng / impact / tính khả thi) |
+| Ứng viên | Lý do loại hoặc hạ xuống vai trò hỗ trợ (dựa trên bằng chứng / impact / tính khả thi) |
 |---|---|
-| [ ] | [ ] |
-| [ ] | [ ] |
+| A. Giải thích đoạn bôi đen/slide hiện tại có ngữ cảnh nhiều slide | Không chọn làm lát cắt chính vì chỉ có 4/71 lượt trong tập evidence multi-slide có ý định giải thích rõ ràng, thấp hơn nhiều so với 66/71 lượt tổng hợp. Giữ A là đường happy path phụ của Tutor sau khi lõi B chạy ổn định. |
+| C. Citation và báo thiếu căn cứ | Không chọn làm feature độc lập vì citation/cảnh báo là cơ chế đảm bảo chất lượng, chưa giúp học viên hoàn thành mục tiêu ôn lại một mục lớn. Bắt buộc tích hợp C vào output của B. |
 
 ### 2.3 Ứng viên được chọn
 
-- **Ứng viên chọn:** [ ]
-- **Lý do chọn bằng số:** [Bao nhiêu người gặp x tần suất x chi phí mỗi lần; nêu rõ số liệu từ §1.]
-- **Vì sao chọn thay vì ứng viên gần nhất:** [Bằng chứng mạnh hơn / impact cao hơn / khả thi hơn như thế nào?]
+- **Ứng viên chọn:** B — Tóm tắt một mục hoặc dải slide theo cấu trúc, có slide nguồn cho các ý chính và báo thiếu căn cứ khi text không đủ.
+- **Lý do chọn bằng số:** 66/71 lượt evidence (93,0%) có ý định tóm tắt/tổng hợp; tương đương 5,2% trong 1.261 lượt hỏi-đáp. Trong 66 lượt này, 33 lượt nhận phản hồi lỗi truy xuất hoặc vượt phạm vi tóm tắt. Đây là nhu cầu có bằng chứng mạnh nhất, đồng thời pipeline `multi_slide_summary`, tải slide theo thứ tự và citation đã chạy được nên có thể build/demo trong 10 giờ.
+- **Vì sao chọn thay vì ứng viên gần nhất:** So với A, B có tín hiệu ý định trực tiếp cao hơn nhiều trong cùng tập evidence (66 lượt so với 4 lượt). So với C, B hoàn thành trực tiếp job ôn lại một mục học; C được giữ làm điều kiện chất lượng bắt buộc trong B thay vì một feature riêng.
+- **Giới hạn số liệu:** Các con số là số lượt hỏi-đáp, không phải số học viên duy nhất. Chi phí thời gian mỗi lần chưa được đo; nhóm sẽ đo trong validation thay vì suy diễn thành số liệu thật.
 
 ---
 
 ## §3. Giải pháp tương tự đã nghiên cứu
 
-*Gợi ý: Mỗi thành viên nên trực tiếp dùng thử ít nhất một sản phẩm gần bài toán. Viết quan sát về flow cụ thể, không nhận xét chung kiểu “giao diện đẹp”.*
+
 
 | Sản phẩm | Flow họ giải job này | Điều đáng học | Điều đáng né | Nhóm khác gì ở lát cắt này | Người nghiên cứu |
 |---|---|---|---|---|---|
-| [Sản phẩm 1] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| [Sản phẩm 2] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| [Sản phẩm 3] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| [NotebookLM](https://support.google.com/notebooklm/answer/16179559?hl=en) | Nạp tài liệu vào notebook, chọn nguồn cần dùng, hỏi về nội dung hoặc yêu cầu tóm tắt. Câu trả lời có citation; bấm citation sẽ mở vị trí đoạn nguồn trong ngữ cảnh. | Citation phải nằm sát từng claim và dẫn người học trở lại đúng đoạn nguồn. Cho phép thu hẹp tập nguồn khi cần câu trả lời tập trung. | Không mở rộng phạm vi VLearn sang nhiều loại nguồn/multimodal chỉ vì NotebookLM hỗ trợ chúng. Với lát cắt này, không được che giấu trường hợp text không đủ căn cứ. | VLearn nhận câu hỏi cùng slide hiện tại/đoạn bôi đen, chỉ retrieve text từ đúng deck và version đang học, ưu tiên các slide liên quan theo thứ tự bài giảng. Output tóm tắt theo mục/dải slide, hiển thị `[Slide N]` cho ý chính và báo rõ khi text không đủ. | Cả 3 thành viên đã dùng thử; đối chiếu thêm tài liệu chính thức. |
+| [ChatGPT Study Mode](https://help.openai.com/en/articles/11780217-chatgpt-study-mode-faq) | Bật Study Mode, đưa tài liệu học tập hoặc nêu phần cần học. Hệ thống hỏi người học đang biết gì/đang kẹt ở đâu, giải thích theo từng lớp, sau đó đặt câu hỏi hoặc quiz để kiểm tra hiểu biết. | Không chỉ trả lời một lần: bắt đầu ở mức đơn giản, cho phép đi sâu dần và kiểm tra người học đã hiểu hay chưa. Đây là cách giảm nguy cơ người học chỉ đọc bản tóm tắt mà không nắm mối liên hệ. | Không dùng flow Socratic dài cho mọi yêu cầu tóm tắt, vì học viên xem lại tài liệu thường cần một bản tổng hợp có cấu trúc trước. Không giả định upload file luôn đủ chính xác; tài liệu chính thức cũng nêu trường hợp hệ thống có thể bỏ sót nội dung trong file/ảnh. | VLearn không cố thay thế một tutor tổng quát. Lát cắt tập trung vào tóm tắt text-only một mục/dải slide, grounded theo deck/version hiện tại, có citation theo slide và đường lui khi thiếu căn cứ; có thể thêm một câu kiểm tra hiểu sau bản tóm tắt. | Cả 3 thành viên đã dùng thử; đối chiếu thêm tài liệu chính thức. |
 
 ---
 
