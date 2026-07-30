@@ -243,3 +243,12 @@ test("slide study workflow is interactive", async ({ page }) => {
   await page.waitForTimeout(350);
   await page.screenshot({ path: "artifacts/folio-slide-tutor.png", fullPage: true });
 });
+
+test("upload explains when the backend is unavailable", async ({ page }) => {
+  await page.route("**/api/decks", (route) => route.abort("connectionrefused"));
+  await page.goto("/");
+  await page.getByRole("button", { name: /Upload/ }).first().click();
+  await page.getByRole("dialog").locator('input[type="file"]').setInputFiles("../../tham-khao/Strategyn_JTBD_Playbook.pdf");
+  await expect(page.getByRole("alert")).toContainText("Cannot connect to the VLearn backend");
+  await expect(page.getByRole("heading", { name: "Upload a slide deck" })).toBeVisible();
+});

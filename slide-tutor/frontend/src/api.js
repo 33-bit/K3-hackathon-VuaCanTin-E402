@@ -10,12 +10,20 @@ const readError = async (response) => {
     const payload = await response.json();
     return payload?.error?.message || payload?.detail || `Request failed (${response.status})`;
   } catch {
+    if (response.status >= 500) {
+      return `VLearn backend is unavailable (${response.status}). Check that the API and its services are running.`;
+    }
     return `Request failed (${response.status})`;
   }
 };
 
 const request = async (path, options) => {
-  const response = await fetch(apiUrl(path), options);
+  let response;
+  try {
+    response = await fetch(apiUrl(path), options);
+  } catch {
+    throw new Error("Cannot connect to the VLearn backend. Start the API on port 8000 or configure VITE_API_BASE.");
+  }
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 };
