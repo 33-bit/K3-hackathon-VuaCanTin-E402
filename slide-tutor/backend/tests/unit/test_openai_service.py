@@ -31,9 +31,11 @@ class MemoryCache:
 
 class QueryStubOpenAIService(OpenAIService):
     completion_calls = 0
+    last_completion_kwargs: dict[str, Any] = {}
 
-    async def _json_completion(self, **_: Any) -> dict[str, Any]:
+    async def _json_completion(self, **kwargs: Any) -> dict[str, Any]:
         self.completion_calls += 1
+        self.last_completion_kwargs = kwargs
         return {
             "rewritten_query": "hybrid retrieval là gì",
             "scope": "retrieval",
@@ -51,6 +53,21 @@ class NullOptionalListsOpenAIService(OpenAIService):
             "confidence": "high",
             "insufficient_evidence": False,
             "missing_content_types": None,
+        }
+
+
+class UUIDLeakingOpenAIService(OpenAIService):
+    async def _json_completion(self, **_: Any) -> dict[str, Any]:
+        chunk_id = "00000000-0000-5000-8000-000000000123"
+        return {
+            "answer": (
+                f"Nội dung có căn cứ. [{chunk_id}] "
+                f"Chi tiết thứ hai (chunk_id: {chunk_id})."
+            ),
+            "citation_chunk_ids": [chunk_id],
+            "confidence": "high",
+            "insufficient_evidence": False,
+            "missing_content_types": [],
         }
 
 
@@ -80,6 +97,8 @@ async def test_query_understanding_uses_redis_as_best_effort_cache() -> None:
     assert cache.set_calls == 1
     assert len(cache.values) == 1
     assert next(iter(cache.values)).startswith("slide_tutor:query_understanding:")
+    assert service.last_completion_kwargs["schema_name"] == "query_understanding"
+    assert service.last_completion_kwargs["response_schema"]["additionalProperties"] is False
 
 
 @pytest.mark.asyncio
@@ -118,3 +137,24 @@ async def test_null_optional_lists_do_not_crash_structured_answer_parsing() -> N
     assert answer.answer == "Grounded answer"
     assert answer.citation_chunk_ids == [chunk_id]
     assert answer.missing_content_types == []
+
+
+@pytest.mark.asyncio
+async def test_internal_uuid_citations_are_removed_from_answer_text() -> None:
+    chunk_id = UUID("00000000-0000-5000-8000-000000000123")
+    service = UUIDLeakingOpenAIService(Settings(_env_file=None))
+
+    answer = await service.generate_answer(
+        question="Tóm tắt slide",
+        language="vi",
+        contexts=[
+            {
+                "chunk_id": str(chunk_id),
+                "slide_number": 1,
+                "text": "Nội dung có căn cứ.",
+            }
+        ],
+    )
+
+    assert answer.answer == "Nội dung có căn cứ. Chi tiết thứ hai."
+    assert answer.citation_chunk_ids == [chunk_id]

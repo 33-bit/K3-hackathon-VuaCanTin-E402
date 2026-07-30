@@ -31,6 +31,16 @@ _LOGISTICS_RE = re.compile(
     r"hướng dẫn.{0,40}(?:làm|hoàn thành|nộp).{0,20}(?:lab|bài))\b",
     re.IGNORECASE,
 )
+_CLAIM_VALIDATION_RE = re.compile(
+    r"\b(?:đúng không|có đúng không|có phải|phải không|right\??|is it true)\b",
+    re.IGNORECASE,
+)
+_SUMMARY_THEN_KEY_POINTS_RE = re.compile(
+    r"\b(?:tóm tắt|summary)\b.{0,100}\b"
+    r"(?:sau đó|rồi|then|và)\b.{0,80}\b"
+    r"(?:ý chính|điểm chính|key points?|takeaways?)\b",
+    re.IGNORECASE,
+)
 
 
 def route_query(
@@ -89,57 +99,9 @@ def route_query(
             insufficient=True,
         )
 
-    requested_ranges = list(explicit_ranges)
-    if not requested_ranges:
-        range_match = _RANGE_RE.search(question)
-        if range_match:
-            requested_ranges = [
-                (int(range_match.group(1)), int(range_match.group(2)))
-            ]
-        else:
-            slide_match = _SINGLE_SLIDE_RE.search(question)
-            if slide_match and requested_day is None:
-                number = int(slide_match.group(1))
-                requested_ranges = [(number, number)]
-
-    if requested_ranges:
-        return _range_query(
-            question=question,
-            requested_ranges=requested_ranges,
-            slide_count=slide_count,
-            logistics_requested=bool(_LOGISTICS_RE.search(normalized)),
-            english=english,
-        )
-
-    if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in _ALL_DECK_PATTERNS):
-        return QueryUnderstanding(
-            rewritten_query=question,
-            scope="range",
-            intent="all_deck_summary",
-            slide_start=1,
-            slide_end=slide_count,
-            generation_question=question,
-        )
-
-    if _LOGISTICS_RE.search(normalized):
-        answer = (
-            "The open deck does not contain the submission deadline, submission link, "
-            "or official lab-submission procedure. Please check the LMS/Discord announcement "
-            "or ask the TA."
-            if english
-            else (
-                "Tài liệu đang mở không chứa deadline, link nộp hoặc quy trình nộp lab "
-                "chính thức. Bạn hãy kiểm tra LMS/Discord hoặc hỏi TA."
-            )
-        )
-        return _direct_query(
-            question=question,
-            mode="insufficient",
-            reason_code="logistics_not_in_deck",
-            answer=answer,
-            insufficient=True,
-        )
-
+    # Evidence-integrity checks take precedence over intent routing. A corrupt
+    # selected glyph must never become a formula merely because the question
+    # is phrased as a yes/no claim.
     if selected_text and _has_text_extraction_warning(selected_text):
         notice = (
             "The unusual symbol is likely a PDF font/glyph extraction error, so there is "
@@ -166,6 +128,79 @@ def route_query(
             notices=[notice],
             force_insufficient=True,
             reason_code="text_extraction_warning",
+        )
+
+    requested_ranges = list(explicit_ranges)
+    if not requested_ranges:
+        range_match = _RANGE_RE.search(question)
+        if range_match:
+            requested_ranges = [
+                (int(range_match.group(1)), int(range_match.group(2)))
+            ]
+        else:
+            slide_match = _SINGLE_SLIDE_RE.search(question)
+            if slide_match and requested_day is None:
+                number = int(slide_match.group(1))
+                requested_ranges = [(number, number)]
+
+    if requested_ranges:
+        return _range_query(
+            question=question,
+            requested_ranges=requested_ranges,
+            slide_count=slide_count,
+            logistics_requested=bool(_LOGISTICS_RE.search(normalized)),
+            english=english,
+        )
+
+    if _CLAIM_VALIDATION_RE.search(normalized):
+        return QueryUnderstanding(
+            rewritten_query=question,
+            scope="current_slide",
+            intent="correct_misconception",
+            generation_question=question,
+        )
+
+    if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in _ALL_DECK_PATTERNS):
+        practice_quiz = bool(
+            re.search(r"\b(?:quiz|câu hỏi ôn tập|câu hỏi luyện tập)\b", normalized, re.I)
+        )
+        summary_then_key_points = bool(
+            _SUMMARY_THEN_KEY_POINTS_RE.search(normalized)
+        )
+        return QueryUnderstanding(
+            rewritten_query=question,
+            scope="range",
+            intent=(
+                "practice_quiz"
+                if practice_quiz
+                else (
+                    "summary_then_key_takeaways"
+                    if summary_then_key_points
+                    else "all_deck_summary"
+                )
+            ),
+            slide_start=1,
+            slide_end=slide_count,
+            generation_question=question,
+        )
+
+    if _LOGISTICS_RE.search(normalized):
+        answer = (
+            "The open deck does not contain the submission deadline, submission link, "
+            "or official lab-submission procedure. Please check the LMS/Discord announcement "
+            "or ask the TA."
+            if english
+            else (
+                "Tài liệu đang mở không chứa deadline, link nộp hoặc quy trình nộp lab "
+                "chính thức. Bạn hãy kiểm tra LMS/Discord hoặc hỏi TA."
+            )
+        )
+        return _direct_query(
+            question=question,
+            mode="insufficient",
+            reason_code="logistics_not_in_deck",
+            answer=answer,
+            insufficient=True,
         )
 
     if selected_text or re.search(
@@ -363,13 +398,24 @@ def _range_query(
 
     notices: list[str] = []
     if requested_start < 1 or requested_end > slide_count:
+        missing_ranges: list[tuple[int, int]] = []
+        if requested_start < 1:
+            missing_ranges.append((requested_start, min(0, requested_end)))
+        if requested_end > slide_count:
+            missing_ranges.append(
+                (max(slide_count + 1, requested_start), requested_end)
+            )
+        missing_label = ", ".join(
+            str(start) if start == end else f"{start}–{end}"
+            for start, end in missing_ranges
+        )
         notices.append(
-            f"The open deck has only {slide_count} slides. I used the available range "
-            f"{valid_start}–{valid_end}; the remaining requested slides do not exist."
+            f"The open deck has only {slide_count} slides, so slides {missing_label} "
+            f"do not exist. I used only the available range {valid_start}–{valid_end}."
             if english
             else (
-                f"Deck đang mở chỉ có {slide_count} slide. Mình chỉ sử dụng phạm vi "
-                f"{valid_start}–{valid_end}; phần slide còn lại trong yêu cầu không tồn tại."
+                f"Deck đang mở chỉ có {slide_count} slide, nên slide {missing_label} "
+                f"không tồn tại. Mình chỉ sử dụng phạm vi {valid_start}–{valid_end}."
             )
         )
     if logistics_requested:

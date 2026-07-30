@@ -5,7 +5,7 @@ Backend RAG cho Slide Tutor, dùng:
 - PostgreSQL làm nguồn dữ liệu chuẩn cho deck, version, slide, chunk, quyền và hội thoại.
 - Qdrant làm chỉ mục retrieval có thể dựng lại: dense vector + BM25 sparse + RRF.
 - Redis chỉ làm cache; job và outbox luôn nằm trong PostgreSQL.
-- OpenAI `text-embedding-3-large` (1536 chiều), GPT-4o và GPT-4o mini.
+- OpenAI `text-embedding-3-large` (1536 chiều) và GPT-4o cho toàn bộ tác vụ LLM.
 
 Frontend không nằm trong phạm vi của thư mục này.
 
@@ -78,8 +78,7 @@ bind-mount thư mục Windows vào `/qdrant/storage`.
 | `OPENAI_EMBEDDING_DIMENSIONS` | `1536` |
 | `EMBEDDING_VERSION` | `te3large_1536_v1` |
 | `RETRIEVAL_SCHEMA_VERSION` | `qdrant_bm25_rrf_v1` |
-| `OPENAI_ANSWER_MODEL` | `gpt-4o-2024-08-06` |
-| `OPENAI_FAST_MODEL` | `gpt-4o-mini-2024-07-18` |
+| `OPENAI_MODEL` | `gpt-4o-2024-08-06` cho query understanding, rerank, generation, grounding và repair |
 | `AUTH_PROXY_SHARED_SECRET` | Bắt buộc ngoài development |
 | `UPLOAD_DIR` | `data/uploads` |
 | `QUERY_UNDERSTANDING_CACHE_TTL_SECONDS` | `3600` |

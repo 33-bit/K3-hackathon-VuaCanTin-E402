@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
-import os
 import sys
 import time
 from collections import Counter
@@ -14,7 +14,6 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 EVAL_DIR = Path(__file__).resolve().parent
-REPO_ROOT = EVAL_DIR.parent
 DEFAULT_GOLDEN_SET = EVAL_DIR / "golden_set.json"
 RESULTS_DIR = EVAL_DIR / "results"
 REQUIRED_HARD_TYPES = {
@@ -36,8 +35,9 @@ def configure_utf8_console() -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the VLearn Slide Tutor product golden set against a ready deck. "
-            "The runner never reads or uploads the source data pack."
+            "Run the VLearn Slide Tutor golden set against a ready deck. "
+            "This runner calls only the product API and creates a review packet; "
+            "it never calls a separate LLM judge."
         )
     )
     parser.add_argument(
@@ -54,16 +54,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--course-id", help="Course UUID used by the uploaded deck.")
     parser.add_argument("--deck-id", help="Ready deck UUID to evaluate.")
     parser.add_argument(
-        "--judge",
-        action="store_true",
-        help="Use GPT-4o-mini as a semantic judge after deterministic checks.",
-    )
-    parser.add_argument(
-        "--judge-model",
-        default=os.getenv("OPENAI_FAST_MODEL", "gpt-4o-mini-2024-07-18"),
-        help="OpenAI model used only for semantic judging.",
-    )
-    parser.add_argument(
         "--validate-only",
         action="store_true",
         help="Validate golden-set structure and coverage without calling the API.",
@@ -71,13 +61,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--limit",
         type=int,
-        help="Run only the first N cases for a smoke test. Do not use for the scored run.",
+        help="Run only the first N cases for a smoke test; this cannot be scored.",
     )
     parser.add_argument(
         "--sleep-seconds",
         type=float,
         default=0.2,
-        help="Delay between cases.",
+        help="Delay between product API calls.",
     )
     return parser.parse_args()
 
@@ -258,6 +248,7 @@ def deterministic_checks(
     response: dict[str, Any],
     valid_slide_numbers: set[int],
 ) -> tuple[bool, list[str]]:
+    """Check facts that do not require subjective semantic grading."""
     expected = case["expected"]
     failures: list[str] = []
     expected_status = int(expected.get("expected_http_status", 200))
@@ -312,104 +303,108 @@ def deterministic_checks(
     return not failures, failures
 
 
-def load_openai_key() -> str:
-    try:
-        from dotenv import load_dotenv
-    except ImportError as exc:
-        raise RuntimeError(
-            "python-dotenv is required for --judge. Run with the backend virtualenv."
-        ) from exc
-    load_dotenv(REPO_ROOT / "slide-tutor" / "backend" / ".env", override=False)
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError(
-            "OPENAI_API_KEY is missing. Put it in slide-tutor/backend/.env."
-        )
-    return key
-
-
-def parse_judge_json(raw: str) -> dict[str, Any]:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1])
-        if text.lstrip().startswith("json"):
-            text = text.lstrip()[4:].lstrip()
-    parsed = json.loads(text)
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("pass"), bool):
-        raise TypeError("judge response must contain boolean pass")
-    return parsed
-
-
-def judge_response(
-    *,
-    client: Any,
-    model: str,
-    case: dict[str, Any],
-    response: dict[str, Any],
-) -> dict[str, Any]:
-    judge_payload = {
-        "case_id": case["id"],
-        "student_input": case["input"],
-        "expected_behavior": case["expected"],
-        "actual_response": {
-            "answer": response.get("answer"),
-            "confidence": response.get("confidence"),
-            "insufficient_evidence": response.get("insufficient_evidence"),
-        },
-    }
-    completion = client.chat.completions.create(
-        model=model,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Bạn là giám khảo cho VLearn AI Tutor. Chỉ chấm theo "
-                    "expected_behavior và actual_response được cung cấp, không bổ sung "
-                    "kiến thức ngoài. Hãy kiểm tra từng must_include_concept độc lập. "
-                    "Một concept được tính là đạt khi câu trả lời diễn đạt cùng ý nghĩa, "
-                    "không cần lặp đúng từ khóa; nếu requirement có 'hoặc/or' thì chỉ cần "
-                    "một nhánh. Với must_not_claim, chỉ tính vi phạm khi câu trả lời thực "
-                    "sự khẳng định toàn bộ mệnh đề bị cấm; việc nhắc một từ như 'agent' "
-                    "không đồng nghĩa với nói 'tài liệu chỉ dạy agent'. Không chấm số "
-                    "citation hoặc phạm vi citation vì code đã kiểm riêng và citations "
-                    "không được đưa cho bạn. Mỗi kết luận thiếu/vi phạm phải kèm một trích "
-                    "đoạn ngắn từ actual answer hoặc ghi rõ không tìm thấy. Trước khi trả "
-                    "kết quả, tự kiểm tra reason có mâu thuẫn với actual answer không. "
-                    "Pass chỉ khi behavior đúng, mọi must_include đạt, không must_not nào "
-                    "bị vi phạm và câu trả lời hữu ích. Trả JSON: "
-                    '{"pass": true|false, "reason": "lý do ngắn", '
-                    '"must_include_checks": [{"requirement": "...", "met": true|false, '
-                    '"evidence": "..."}], "must_not_checks": [{"requirement": "...", '
-                    '"violated": true|false, "evidence": "..."}], '
-                    '"failed_requirements": ["..."]}.'
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(judge_payload, ensure_ascii=False),
-            },
-        ],
+def origin_reference(origin: dict[str, Any]) -> str:
+    references = [
+        value
+        for value in (origin.get("evidence_id"), origin.get("turn_id"))
+        if value
+    ]
+    return "/".join(str(value) for value in references) or str(
+        origin.get("basis") or origin.get("observed_input") or ""
     )
-    content = completion.choices[0].message.content or ""
-    return parse_judge_json(content)
 
 
-def write_results(
+def immutable_review_hash(case: dict[str, Any]) -> str:
+    immutable = {
+        key: case[key]
+        for key in ("case_id", "input", "expected", "actual", "deterministic")
+    }
+    serialized = json.dumps(
+        immutable,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def build_review_packet(
     *,
     golden: dict[str, Any],
     coverage: dict[str, Any],
     results: list[dict[str, Any]],
-    judge_enabled: bool,
     deck_id: str,
-) -> tuple[Path, Path, Path]:
+    run_id: str,
+) -> dict[str, Any]:
+    cases_by_id = {case["id"]: case for case in golden["cases"]}
+    review_cases: list[dict[str, Any]] = []
+    for result in results:
+        case = cases_by_id[result["case_id"]]
+        review_case = {
+                "case_id": result["case_id"],
+                "title": result["title"],
+                "situation_type": result["situation_type"],
+                "rarity": result["rarity"],
+                "origin": case["origin"],
+                "input": case["input"],
+                "expected": case["expected"],
+                "actual": {
+                    "http_status": result["http_status"],
+                    "latency_ms": result["latency_ms"],
+                    "answer": result["answer"],
+                    "citations": result["citations"],
+                    "confidence": result["confidence"],
+                    "insufficient_evidence": result["insufficient_evidence"],
+                },
+                "deterministic": {
+                    "pass": result["deterministic_pass"],
+                    "failures": result["deterministic_failures"],
+                },
+                "review": {
+                    "reviewer": "",
+                    "pass": None,
+                    "reason": "",
+                },
+            }
+        review_case["immutable_sha256"] = immutable_review_hash(review_case)
+        review_cases.append(review_case)
+    return {
+        "schema_version": "1.0",
+        "run_id": run_id,
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        "golden_set": {
+            "name": golden.get("name"),
+            "version": golden.get("version"),
+        },
+        "deck_id": deck_id,
+        "coverage": coverage,
+        "quality_bar": golden.get("quality_bar", {}),
+        "review_method": "human_or_codex",
+        "instructions": [
+            "Đọc input, expected, actual và deterministic của từng case.",
+            "Chỉ dùng nội dung expected/golden set; không bổ sung kiến thức ngoài.",
+            "Điền review.reviewer, review.pass=true|false và review.reason.",
+            "Không đổi input, expected, actual, deterministic hoặc quality_bar.",
+            "finalize_review.py sẽ từ chối nếu phần dữ liệu bất biến bị sửa.",
+            "Sau khi chấm đủ, chạy: python eval/finalize_review.py <review-packet.json>.",
+        ],
+        "cases": review_cases,
+    }
+
+
+def write_run_artifacts(
+    *,
+    golden: dict[str, Any],
+    coverage: dict[str, Any],
+    results: list[dict[str, Any]],
+    deck_id: str,
+) -> tuple[Path, Path, Path, Path]:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    jsonl_path = RESULTS_DIR / f"run-{stamp}.jsonl"
-    csv_path = RESULTS_DIR / f"run-{stamp}.csv"
-    summary_path = RESULTS_DIR / f"summary-{stamp}.md"
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    jsonl_path = RESULTS_DIR / f"run-{run_id}.jsonl"
+    csv_path = RESULTS_DIR / f"run-{run_id}.csv"
+    summary_path = RESULTS_DIR / f"summary-{run_id}.md"
+    review_path = RESULTS_DIR / f"review-{run_id}.json"
 
     with jsonl_path.open("w", encoding="utf-8") as handle:
         for result in results:
@@ -423,138 +418,70 @@ def write_results(
         "origin_type",
         "origin_reference",
         "http_status",
+        "latency_ms",
         "deterministic_pass",
-        "judge_pass",
-        "final_pass",
+        "deterministic_failures",
         "citation_slides",
         "insufficient_evidence",
-        "reason",
+        "confidence",
         "answer",
-        "manual_reviewer_1",
-        "manual_reviewer_2",
-        "final_review_pass",
+        "reviewer",
+        "review_pass",
+        "review_reason",
+        "final_pass",
     ]
     with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
-            writer.writerow({field: result.get(field) for field in fieldnames})
+            writer.writerow(
+                {
+                    **{field: result.get(field) for field in fieldnames},
+                    "deterministic_failures": " | ".join(
+                        result["deterministic_failures"]
+                    ),
+                }
+            )
 
-    passed = sum(result["final_pass"] is True for result in results)
+    packet = build_review_packet(
+        golden=golden,
+        coverage=coverage,
+        results=results,
+        deck_id=deck_id,
+        run_id=run_id,
+    )
+    review_path.write_text(
+        json.dumps(packet, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     total = len(results)
+    deterministic_passed = sum(
+        result["deterministic_pass"] is True for result in results
+    )
     full_run = total == coverage["total"]
-    by_type: dict[str, tuple[int, int]] = {}
-    for situation_type in sorted({result["situation_type"] for result in results}):
-        subset = [
-            result for result in results if result["situation_type"] == situation_type
-        ]
-        by_type[situation_type] = (
-            sum(result["final_pass"] is True for result in subset),
-            len(subset),
-        )
-
-    quality_bar = golden.get("quality_bar", {})
-    minimum_passed = int(quality_bar.get("minimum_passed_cases", total))
-    hard_gate_types = ("source_truth", "authority", "domain_harm")
-    hard_types_pass = all(
-        by_type.get(situation_type, (0, 0))[0]
-        == by_type.get(situation_type, (0, 0))[1]
-        for situation_type in hard_gate_types
-    )
-    citation_scope_pass = all(
-        "citation references missing slides" not in failure
-        for result in results
-        for failure in result["deterministic_failures"]
-    )
-    quality_bar_pass = (
-        full_run
-        and judge_enabled
-        and passed >= minimum_passed
-        and hard_types_pass
-        and citation_scope_pass
-    )
-    if not full_run:
-        quality_bar_status = "CHƯA ĐÁNH GIÁ (đây là partial/smoke run)"
-    elif not judge_enabled:
-        quality_bar_status = "CHƯA ĐÁNH GIÁ (semantic judge đang tắt)"
-    else:
-        quality_bar_status = "ĐẠT" if quality_bar_pass else "CHƯA ĐẠT"
-
     lines = [
-        f"# Kết quả eval — {stamp}",
+        f"# Kết quả chạy sản phẩm — {run_id}",
         "",
         f"- Golden set: `{golden.get('name')}` version `{golden.get('version')}`",
         f"- Deck ID: `{deck_id}`",
         f"- Phạm vi: `{'full run' if full_run else 'partial/smoke run'}`",
-        f"- Semantic judge: `{'enabled' if judge_enabled else 'disabled'}`",
-        f"- Kết quả: **{passed}/{total}**",
-        f"- Quality bar: **{quality_bar_status}**",
-        f"- Ngưỡng điểm: `{minimum_passed}/{coverage['total']}`",
-        f"- Hard gate nhóm lỗi nghiêm trọng: `{'pass' if hard_types_pass else 'fail'}`",
-        f"- Hard gate citation hợp lệ: `{'pass' if citation_scope_pass else 'fail'}`",
+        f"- Kiểm tra xác định: **{deterministic_passed}/{total}**",
+        "- Chấm nội dung: **đang chờ human/Codex review**",
+        "- Không có OpenAI judge call trong lượt chạy này.",
         "",
-        "## Kết quả theo kiểu tình huống",
+        (
+            "Không được coi điểm kiểm tra xác định là điểm cuối. "
+            "Điểm cuối chỉ có sau khi review từng câu và chạy "
+            "`eval/finalize_review.py`."
+        ),
         "",
-        "| Kiểu | Đạt | Tổng |",
-        "|---|---:|---:|",
+        f"- Review packet: `{review_path.name}`",
+        f"- Bảng chạy: `{csv_path.name}`",
+        f"- Raw JSONL: `{jsonl_path.name}`",
     ]
-    lines.extend(
-        f"| `{situation_type}` | {counts[0]} | {counts[1]} |"
-        for situation_type, counts in by_type.items()
-    )
-    lines.extend(
-        [
-            "",
-            "## Coverage của golden set",
-            "",
-            f"- Tổng case trong bộ đầy đủ: {coverage['total']}",
-            f"- Case từ chatlog: {coverage['origin_counts'].get('chatlog', 0)}",
-            f"- Case từ quan sát thực tế: {coverage['real_origin_count']}",
-            "",
-            "## Case chưa đạt",
-            "",
-        ]
-    )
-    failed = [result for result in results if result["final_pass"] is not True]
-    if failed:
-        lines.extend(
-            f"- `{result['case_id']}` — {result['reason']}" for result in failed
-        )
-    else:
-        lines.append("- Không có.")
-    lines.extend(
-        [
-            "",
-            f"Bảng đầy đủ: `{csv_path.name}`. Raw JSONL: `{jsonl_path.name}`.",
-            "",
-            "> Giữ nguyên cả case pass và fail. Không sửa quality bar sau khi xem kết quả.",
-        ]
-    )
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    latest_csv = RESULTS_DIR / "latest.csv"
-    latest_summary = RESULTS_DIR / "latest-summary.md"
-    if full_run and judge_enabled:
-        latest_csv.write_bytes(csv_path.read_bytes())
-        latest_summary.write_text(
-            summary_path.read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
-    return jsonl_path, csv_path, summary_path
-
-
-def origin_reference(origin: dict[str, Any]) -> str:
-    references = [
-        value
-        for value in (
-            origin.get("evidence_id"),
-            origin.get("turn_id"),
-        )
-        if value
-    ]
-    return "/".join(str(value) for value in references) or str(
-        origin.get("basis") or origin.get("observed_input") or ""
-    )
+    return jsonl_path, csv_path, summary_path, review_path
 
 
 def main() -> int:
@@ -564,7 +491,7 @@ def main() -> int:
     coverage = validate_golden_set(golden)
     print(json.dumps(coverage, ensure_ascii=False, indent=2))
     if args.validate_only:
-        print("Golden set hợp lệ; không gọi API hoặc OpenAI.")
+        print("Golden set hợp lệ; không gọi product API hoặc OpenAI.")
         return 0
     if not args.course_id or not args.deck_id:
         raise ValueError("--course-id and --deck-id are required unless --validate-only")
@@ -573,17 +500,6 @@ def main() -> int:
     slides = load_slides(api_base, args.deck_id)
     slides_by_number = {int(slide["slide_number"]): slide for slide in slides}
     valid_slide_numbers = set(slides_by_number)
-
-    judge_client = None
-    if args.judge:
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError(
-                "openai package is required for --judge. "
-                "Run with slide-tutor/backend/.venv."
-            ) from exc
-        judge_client = OpenAI(api_key=load_openai_key())
 
     cases = golden["cases"]
     if args.limit is not None:
@@ -617,95 +533,59 @@ def main() -> int:
             response=response,
             valid_slide_numbers=valid_slide_numbers,
         )
-
-        judge_result: dict[str, Any] | None = None
-        judge_error: str | None = None
-        if args.judge and http_status == 200:
-            try:
-                judge_result = judge_response(
-                    client=judge_client,
-                    model=args.judge_model,
-                    case=case,
-                    response=response,
-                )
-            except Exception as exc:  # noqa: BLE001 - preserve failed eval evidence
-                judge_error = f"{type(exc).__name__}: {exc}"
-
-        if args.judge:
-            judge_pass = (
-                judge_result.get("pass")
-                if judge_result is not None and judge_error is None
-                else False
-            )
-            final_pass: bool | None = bool(deterministic_pass and judge_pass)
-        else:
-            judge_pass = None
-            final_pass = None
-
-        reasons = list(deterministic_failures)
-        if judge_result and judge_result.get("reason"):
-            reasons.append(str(judge_result["reason"]))
-        if judge_error:
-            reasons.append(f"judge error: {judge_error}")
-        if not reasons:
-            reasons.append(
-                "deterministic checks passed; semantic judge not run"
-                if not args.judge
-                else "all checks passed"
-            )
-
+        citations = (
+            response.get("citations")
+            if isinstance(response.get("citations"), list)
+            else []
+        )
         citation_slides = [
             citation.get("slide_number")
-            for citation in response.get("citations", [])
+            for citation in citations
             if isinstance(citation, dict)
         ]
         origin = case["origin"]
-        result = {
-            "case_id": case["id"],
-            "title": case["title"],
-            "situation_type": case["situation_type"],
-            "rarity": case.get("rarity"),
-            "origin_type": origin.get("type"),
-            "origin_reference": origin_reference(origin),
-            "http_status": http_status,
-            "latency_ms": latency_ms,
-            "deterministic_pass": deterministic_pass,
-            "deterministic_failures": deterministic_failures,
-            "judge_pass": judge_pass,
-            "judge_result": judge_result,
-            "judge_error": judge_error,
-            "final_pass": final_pass,
-            "citation_slides": ",".join(str(value) for value in citation_slides),
-            "insufficient_evidence": response.get("insufficient_evidence"),
-            "reason": " | ".join(reasons),
-            "answer": response.get("answer")
-            or json.dumps(response, ensure_ascii=False),
-        }
-        results.append(result)
+        results.append(
+            {
+                "case_id": case["id"],
+                "title": case["title"],
+                "situation_type": case["situation_type"],
+                "rarity": case.get("rarity"),
+                "origin_type": origin.get("type"),
+                "origin_reference": origin_reference(origin),
+                "http_status": http_status,
+                "latency_ms": latency_ms,
+                "deterministic_pass": deterministic_pass,
+                "deterministic_failures": deterministic_failures,
+                "citation_slides": ",".join(str(value) for value in citation_slides),
+                "citations": citations,
+                "insufficient_evidence": response.get("insufficient_evidence"),
+                "confidence": response.get("confidence"),
+                "answer": response.get("answer")
+                or json.dumps(response, ensure_ascii=False),
+                "reviewer": "",
+                "review_pass": None,
+                "review_reason": "",
+                "final_pass": None,
+            }
+        )
         print(
             f"  HTTP {http_status}; deterministic={deterministic_pass}; "
-            f"judge={judge_pass}; final={final_pass}; {latency_ms}ms"
+            f"review=pending; {latency_ms}ms"
         )
         if position < len(cases) and args.sleep_seconds > 0:
             time.sleep(args.sleep_seconds)
 
-    jsonl_path, csv_path, summary_path = write_results(
+    jsonl_path, csv_path, summary_path, review_path = write_run_artifacts(
         golden=golden,
         coverage=coverage,
         results=results,
-        judge_enabled=args.judge,
         deck_id=args.deck_id,
     )
-    passed = sum(result["final_pass"] is True for result in results)
-    print(f"\nKết quả: {passed}/{len(results)}")
+    print("\nChưa có điểm cuối: nội dung đang chờ human/Codex review.")
     print(f"Summary: {summary_path}")
-    print(f"Full table: {csv_path}")
+    print(f"Run table: {csv_path}")
     print(f"Raw results: {jsonl_path}")
-    if not args.judge:
-        print(
-            "Semantic judge was disabled, so final_pass remains null. "
-            "Use --judge for the scored x/y result."
-        )
+    print(f"Review packet: {review_path}")
     return 0
 
 

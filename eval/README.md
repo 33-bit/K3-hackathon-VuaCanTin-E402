@@ -54,25 +54,23 @@ Mỗi kiểu đều có ít nhất hai câu. Ngoài ra có 8 câu `normal` để
 
 Con số này vượt mức khuyến nghị 10 câu. Các câu còn lại là tình huống tổng hợp có chủ đích để phủ đủ ranh giới an toàn và kiến thức dễ gây mất điểm.
 
-## 5. Kết quả chạy thử lần đầu
+## 5. Kết quả chạy thử
 
-**Trạng thái hiện tại: CHƯA CHẠY — chưa có điểm `x/25`.**
+Các lượt chạy cũ được giữ nguyên trong `eval/results/` để bảo toàn bằng chứng. Mỗi lượt chạy mới tạo:
 
-Không điền điểm giả. Lần chạy đầy đủ đầu tiên sẽ tạo bảng chứa đủ cả case đạt và case fail trong `eval/results/`, gồm:
+- JSONL chứa response thô và các kiểm tra xác định.
+- CSV để lọc toàn bộ case pass/fail.
+- Markdown tóm tắt trạng thái chạy.
+- `review-<timestamp>.json` chứa input, expected, actual và ô review cho từng case.
 
-- File JSONL giữ response và chi tiết kiểm tra của từng case.
-- File CSV để lọc, review và nộp; có cột trống cho hai người review độc lập.
-- File Markdown ghi kết quả `x/25`, điểm theo từng kiểu và danh sách case fail.
-- `latest.csv` và `latest-summary.md` trỏ tới kết quả mới nhất.
-
-Smoke/partial run không ghi đè `latest.*`. Sau lượt chạy đầy đủ đầu tiên có `--judge`, commit các file kết quả để trợ giảng kiểm tra được số thật.
+Runner không gọi một LLM judge riêng và chưa công bố điểm cuối ngay sau khi chạy. Sau khi người thật hoặc Codex đọc review packet, điền `review.reviewer`, `review.pass` và `review.reason` cho đủ 25 câu, `finalize_review.py` mới tính điểm cuối và cập nhật `latest.*`. Smoke/partial run không được tính là lượt chấm chính thức.
 
 ## Chuẩn bị
 
 1. Chạy backend và các service PostgreSQL, Redis, Qdrant.
 2. Bảo đảm deck dùng để đánh giá đã ở trạng thái `ready`.
 3. Chạy lệnh từ thư mục gốc repo.
-4. Nếu dùng `--judge`, đặt `OPENAI_API_KEY` trong `slide-tutor/backend/.env`; không commit file `.env`.
+4. `OPENAI_API_KEY` chỉ được backend dùng để trả lời. Eval runner không đọc key và không gọi OpenAI để chấm.
 
 Chỉ kiểm tra cấu trúc bộ câu, hoàn toàn không gọi backend hoặc OpenAI:
 
@@ -86,8 +84,7 @@ Smoke test hai câu trước khi chạy chính thức:
 .\slide-tutor\backend\.venv\Scripts\python.exe .\eval\run_eval.py `
   --course-id "00000000-0000-0000-0000-000000000010" `
   --deck-id "512ccb4f-f80b-41e8-a974-3cd5195299ee" `
-  --limit 2 `
-  --judge
+  --limit 2
 ```
 
 Lần chạy chính thức đủ 25 câu:
@@ -95,17 +92,22 @@ Lần chạy chính thức đủ 25 câu:
 ```powershell
 .\slide-tutor\backend\.venv\Scripts\python.exe .\eval\run_eval.py `
   --course-id "00000000-0000-0000-0000-000000000010" `
-  --deck-id "512ccb4f-f80b-41e8-a974-3cd5195299ee" `
-  --judge
+  --deck-id "512ccb4f-f80b-41e8-a974-3cd5195299ee"
 ```
 
-`--judge` dùng `gpt-4o-mini-2024-07-18` để chấm ý nghĩa sau các kiểm tra xác định như HTTP status và citation. Lệnh chính thức sẽ gọi endpoint answer 25 lần và judge 25 lần, nên có sử dụng OpenAI API và phát sinh chi phí nhỏ.
+Sau khi chạy, mở file `review-<timestamp>.json`. Người review chỉ sửa ba field trong mỗi `review`: tên người chấm, `pass` và lý do; không sửa expected hoặc actual. Có thể đưa đường dẫn file này cho Codex để chấm. Hoàn tất review bằng:
 
-Xem báo cáo mới nhất:
+```powershell
+.\slide-tutor\backend\.venv\Scripts\python.exe .\eval\finalize_review.py `
+  .\eval\results\review-<timestamp>.json
+```
+
+Xem báo cáo đã chấm mới nhất:
 
 ```powershell
 Get-Content -Encoding UTF8 .\eval\results\latest-summary.md
-Import-Csv .\eval\results\latest.csv | Format-Table case_id,final_pass,reason -AutoSize
+Import-Csv .\eval\results\latest.csv |
+  Format-Table case_id,deterministic_pass,review_pass,final_pass,review_reason -AutoSize
 ```
 
-Kết quả judge tự động là hỗ trợ, không thay thế review. Hai thành viên nên kiểm tra độc lập ít nhất toàn bộ case fail và các nhóm `source_truth`, `authority`, `domain_harm`, sau đó ghi quyết định cuối vào bảng kết quả nếu cần.
+Ở đây “judge” chỉ có nghĩa là **người/bộ chấm** so sánh output thực tế với expected behavior trong golden set; judge không sinh câu trả lời cho học viên. Thiết kế hiện tại dùng human/Codex review để tránh tốn thêm 25 lời gọi model và tránh false negative của model judge. Hai thành viên vẫn nên kiểm tra độc lập ít nhất toàn bộ case fail và các nhóm `source_truth`, `authority`, `domain_harm`.

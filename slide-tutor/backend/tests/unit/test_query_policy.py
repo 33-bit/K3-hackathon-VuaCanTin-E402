@@ -112,12 +112,50 @@ def test_all_deck_requests_use_the_complete_ordered_range(question: str) -> None
     assert result.slide_end == 29
 
 
-def test_whole_document_phrase_inside_concept_question_is_not_all_deck() -> None:
+def test_all_deck_practice_quiz_keeps_the_requested_output_mode() -> None:
+    result = _route("TẠO QUIZ ĐỂ TÔI ÔN LẠI TOÀN BỘ SLIDE NÀY")
+
+    assert result is not None
+    assert result.scope == "range"
+    assert result.intent == "practice_quiz"
+    assert result.slide_start == 1
+    assert result.slide_end == 29
+
+
+def test_summary_then_key_points_preserves_both_requested_output_sections() -> None:
+    result = _route("Tóm tắt toàn bộ slide, sau đó đưa ra các ý chính")
+
+    assert result is not None
+    assert result.scope == "range"
+    assert result.intent == "summary_then_key_takeaways"
+
+
+def test_claim_about_whole_document_is_misconception_not_all_deck_scope() -> None:
     result = _route(
         "Context engineering có phải chỉ là nhét toàn bộ tài liệu vào prompt không?"
     )
 
-    assert result is None
+    assert result is not None
+    assert result.scope == "current_slide"
+    assert result.intent == "correct_misconception"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Context dài lúc nào cũng tốt hơn, đúng không?",
+        "Có đúng không khi nói temperature cao luôn chính xác hơn?",
+        "LLM biết sự thật như con người, phải không?",
+    ],
+)
+def test_claim_validation_uses_current_evidence_without_opening_the_whole_deck(
+    question: str,
+) -> None:
+    result = _route(question)
+
+    assert result is not None
+    assert result.scope == "current_slide"
+    assert result.intent == "correct_misconception"
 
 
 def test_out_of_bounds_range_preserves_the_missing_range_notice() -> None:
@@ -129,6 +167,7 @@ def test_out_of_bounds_range_preserves_the_missing_range_notice() -> None:
     assert result.slide_end == 29
     assert result.force_insufficient is True
     assert any("chỉ có 29 slide" in notice for notice in result.notices)
+    assert any("slide 30–44 không tồn tại" in notice for notice in result.notices)
     assert "slide 1 đến slide 29" in (result.generation_question or "")
 
 
@@ -143,6 +182,7 @@ def test_range_and_submission_question_keeps_both_partial_notices() -> None:
     assert result.slide_start == 21
     assert result.slide_end == 29
     assert len(result.notices) == 2
+    assert "slide 30–32 không tồn tại" in result.notices[0]
     assert result.force_insufficient is True
 
 

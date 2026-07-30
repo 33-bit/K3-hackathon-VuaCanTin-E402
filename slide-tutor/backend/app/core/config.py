@@ -36,8 +36,7 @@ class Settings(BaseSettings):
     qdrant_timeout_seconds: float = 10.0
 
     openai_api_key: SecretStr | None = None
-    openai_answer_model: str = "gpt-4o-2024-08-06"
-    openai_fast_model: str = "gpt-4o-mini-2024-07-18"
+    openai_model: str = "gpt-4o-2024-08-06"
     openai_embedding_model: str = "text-embedding-3-large"
     openai_embedding_dimensions: int = 1536
     embedding_version: str = "te3large_1536_v1"

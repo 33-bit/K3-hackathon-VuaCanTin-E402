@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -74,6 +75,15 @@ class ChatService:
         generation_question = (
             retrieval_result.query.generation_question or request.question
         )
+        if retrieval_result.query.scope == "range":
+            coverage_outline = _build_coverage_outline(contexts)
+        elif retrieval_result.query.scope == "current_slide":
+            coverage_outline = _build_coverage_outline(
+                contexts,
+                slide_ids={str(request.current_slide_id)},
+            )
+        else:
+            coverage_outline = []
         if direct_response:
             generated = _direct_decision_answer(
                 answer=retrieval_result.query.direct_answer,
@@ -86,17 +96,21 @@ class ChatService:
                 question=generation_question,
                 language=request.language,
                 contexts=contexts,
+                coverage_outline=coverage_outline,
+                intent=retrieval_result.query.intent,
             )
             generated = await self._validate_and_repair(
                 question=generation_question,
                 language=request.language,
                 contexts=contexts,
+                coverage_outline=coverage_outline,
+                intent=retrieval_result.query.intent,
                 generated=generated,
             )
-            if generated.insufficient_evidence or not generated.answer.strip():
-                missing_content_types = generated.missing_content_types
-                generated = _safe_insufficient_answer(request.language)
-                generated.missing_content_types = missing_content_types
+            generated = _fallback_if_answer_is_empty(
+                generated=generated,
+                language=request.language,
+            )
 
         allowed_ids = {chunk.id for chunk in retrieval_result.chunks}
         cited_ids = [
@@ -149,8 +163,7 @@ class ChatService:
             final_chunk_ids=[str(chunk.id) for chunk in retrieval_result.chunks],
             timings_json=retrieval_result.timings_ms,
             model_config_json={
-                "answer_model": self.settings.openai_answer_model,
-                "fast_model": self.settings.openai_fast_model,
+                "model": self.settings.openai_model,
                 "embedding_model": self.settings.openai_embedding_model,
                 "embedding_dimensions": self.settings.openai_embedding_dimensions,
                 "retrieval_schema_version": context.version.retrieval_schema_version,
@@ -185,15 +198,38 @@ class ChatService:
         question: str,
         language: str,
         contexts: list[dict[str, Any]],
+        coverage_outline: list[dict[str, Any]],
+        intent: str,
         generated: GeneratedAnswer,
     ) -> GeneratedAnswer:
         if generated.insufficient_evidence:
+            generated.citation_chunk_ids = []
             return generated
+        contract_violations = _answer_contract_violations(
+            intent=intent,
+            answer=generated.answer,
+        )
         validation = await self.llm.validate_grounding(
             answer=generated.answer,
             contexts=contexts,
+            question=question,
+            coverage_outline=coverage_outline,
+            intent=intent,
         )
-        if validation.valid:
+        if validation.valid and not contract_violations:
+            if validation.supported_chunk_ids:
+                supported = set(validation.supported_chunk_ids)
+                generated.citation_chunk_ids = [
+                    chunk_id
+                    for chunk_id in generated.citation_chunk_ids
+                    if chunk_id in supported
+                ]
+            return generated
+        missing_topics = list(
+            dict.fromkeys([*validation.missing_topics, *contract_violations])
+        )
+        if not validation.unsupported_claims and not missing_topics:
+            generated.confidence = "medium"
             return generated
         repaired = await self.llm.repair_answer(
             question=question,
@@ -201,16 +237,16 @@ class ChatService:
             contexts=contexts,
             previous_answer=generated.answer,
             unsupported_claims=validation.unsupported_claims,
+            missing_topics=missing_topics,
+            coverage_outline=coverage_outline,
+            intent=intent,
         )
         if repaired.insufficient_evidence:
+            repaired.citation_chunk_ids = []
             return repaired
-        second_validation = await self.llm.validate_grounding(
-            answer=repaired.answer,
-            contexts=contexts,
-        )
-        if second_validation.valid:
-            return repaired
-        return _safe_insufficient_answer(language)
+        if _answer_contract_violations(intent=intent, answer=repaired.answer):
+            repaired.confidence = "medium"
+        return repaired
 
 
 def _build_citations(
@@ -271,8 +307,77 @@ def _direct_decision_answer(
     )
 
 
+def _fallback_if_answer_is_empty(
+    *,
+    generated: GeneratedAnswer,
+    language: str,
+) -> GeneratedAnswer:
+    """Keep a useful, explicit insufficiency explanation; replace only an empty answer."""
+    if generated.answer.strip():
+        return generated
+    fallback = _safe_insufficient_answer(language)
+    fallback.missing_content_types = generated.missing_content_types
+    return fallback
+
+
+def _answer_contract_violations(*, intent: str, answer: str) -> list[str]:
+    normalized = answer.strip()
+    violations: list[str] = []
+    if intent == "summary_then_key_takeaways":
+        has_summary = bool(
+            re.search(r"(?im)^\s*(?:#{1,4}\s*)?(?:tóm tắt|summary)\b", normalized)
+        )
+        has_key_points = bool(
+            re.search(
+                r"(?im)^\s*(?:#{1,4}\s*)?"
+                r"(?:các\s+)?(?:ý chính|điểm chính|key points?|takeaways?)\b",
+                normalized,
+            )
+        )
+        if not has_summary or not has_key_points:
+            violations.append(
+                "Tách rõ hai phần có tiêu đề: Tóm tắt và Ý chính."
+            )
+    elif intent == "practice_quiz" and normalized.count("?") < 5:
+        violations.append(
+            "Tạo ít nhất 5 câu hỏi luyện tập trải trên các chủ đề khác nhau."
+        )
+    return violations
+
+
 def _append_notices(answer: str, notices: list[str]) -> str:
     unique_notices = list(dict.fromkeys(item.strip() for item in notices if item.strip()))
     if not unique_notices:
         return answer
     return f"{answer.rstrip()}\n\n" + "\n".join(unique_notices)
+
+
+def _build_coverage_outline(
+    contexts: list[dict[str, Any]],
+    *,
+    slide_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Build an ordered, ID-free topic checklist from canonical range contexts."""
+    by_slide: dict[int, dict[str, Any]] = {}
+    for context in contexts:
+        if slide_ids is not None and str(context.get("slide_id")) not in slide_ids:
+            continue
+        try:
+            slide_number = int(context["slide_number"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        entry = by_slide.setdefault(
+            slide_number,
+            {
+                "slide_number": slide_number,
+                "title": context.get("slide_title"),
+                "section": context.get("section"),
+                "topic_hint": "",
+            },
+        )
+        if entry["topic_hint"]:
+            continue
+        text = " ".join(str(context.get("text") or "").split())
+        if text:
+            entry["topic_hint"] = text[:240]
+    return [by_slide[number] for number in sorted(by_slide)]
