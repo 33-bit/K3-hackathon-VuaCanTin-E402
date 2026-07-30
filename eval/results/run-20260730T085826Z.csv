@@ -1,0 +1,30 @@
+﻿case_id,title,situation_type,rarity,origin_type,origin_reference,http_status,deterministic_pass,judge_pass,final_pass,citation_slides,insufficient_evidence,reason,answer,manual_reviewer_1,manual_reviewer_2,final_review_pass
+VL-001,Summary chi tiết toàn bộ deck,normal,common,chatlog,E001/T0541,200,True,False,False,"2,3,10,27",False,Tóm tắt không bao gồm đủ các khái niệm cần thiết như context/attention và agent/tools.,"Bài giảng ngày hôm nay tập trung vào việc khám phá nền tảng của AI và các mô hình ngôn ngữ lớn (LLM). Nội dung chính bao gồm:
+
+1. **Tổng quan về AI và các tầng của nó**: AI được mô tả như một chiếc ô lớn bao gồm nhiều hệ thống thông minh, trong đó Machine Learning và Deep Learning là các tầng con. Generative AI và LLM là những công nghệ nổi bật hiện nay, với LLM là nền tảng cho nhiều ứng dụng AI hiện đại (chunk_id: d7c16d5e-bcf5-5f38-bc8c-f67f66aa2f68).
+
+2. **Lịch sử và cơ chế hoạt động của AI**: Bài giảng đã điểm qua lịch sử 70 năm của AI và giải thích cơ chế hoạt động bên trong của LLM, từ việc dự đoán mảnh chữ tiếp theo đến việc trở thành một nền tảng chung cho nhiều ứng dụng khác nhau (chunk_id: 3cf904e2-727d-5cb4-a584-3e02835513b1, 67c07bb7-ddc7-5294-af21-5b53304821e6).
+
+3. **Chi phí và quản lý token**: Một phần quan trọng của bài giảng là về chi phí liên quan đến việc sử dụng API của các mô hình AI, đặc biệt là sự khác biệt giữa chi phí đầu vào và đầu ra của token, và cách quản lý chi phí này (chunk_id: ee79ca03-e1e6-5908-89d2-93b4613c667d).
+
+4. **Thực hành và ứng dụng**: Bài giảng cũng bao gồm các hoạt động thực hành như gọi API lần đầu và tổng kết những ý tưởng quan trọng để áp dụng vào thực tế (chunk_id: 3cf904e2-727d-5cb4-a584-3e02835513b1).
+
+Tóm lại, bài giảng cung cấp một cái nhìn toàn diện về AI, từ lý thuyết đến thực hành, giúp người học hiểu rõ hơn về cách AI hoạt động và cách áp dụng nó trong các tình huống thực tế.",,,
+VL-002,Tóm tắt rồi rút ra ý chính,normal,common,chatlog,E002/T0699,200,True,False,False,"14,15,16,20,28",False,Không đề cập đến lịch sử AI và LLM.,"Tóm tắt toàn bộ slide:
+
+1. **Bàn làm việc có hạn của model**: Model chỉ có thể xử lý một lượng thông tin giới hạn trong một lần, tương tự như một bàn làm việc có hạn. Khi thông tin quá nhiều, đặc biệt là ở giữa, có thể bị bỏ sót. Các model thế hệ mới đã cải thiện nhưng vẫn chưa hoàn toàn khắc phục được vấn đề này.
+
+2. **Đặt điều quan trọng đầu – cuối**: Đầu và cuối của prompt được chú ý nhiều nhất, nên cần đặt thông tin quan trọng ở đó. Giữ cho context sạch và tóm tắt khi cần thiết để tránh attention rác.
+
+3. **Giải phẫu một prompt**: Một prompt hiệu quả bao gồm bốn lớp: hướng dẫn hệ thống, đầu vào người dùng, context bổ sung, và kết quả mong muốn. Việc viết rõ cả bốn lớp là một phần quan trọng của kỹ thuật tạo prompt.
+
+4. **Bong bóng thời gian**: Model có giới hạn về thời gian cập nhật thông tin mới và có thể tự tin đưa ra thông tin sai. Cần sử dụng prompt tốt, context sạch, và kiểm chứng thông tin.
+
+5. **Attention**: Cơ chế attention cho phép model hiểu ngữ cảnh tốt hơn bằng cách cho phép mỗi token nhìn lại các token trước đó và xác định mức độ liên quan.
+
+Các ý chính:
+- Giới hạn context của model và cách quản lý thông tin hiệu quả.
+- Tầm quan trọng của việc đặt thông tin quan trọng ở đầu và cuối prompt.
+- Cấu trúc của một prompt hiệu quả.
+- Giới hạn thời gian cập nhật thông tin của model và cách khắc phục.
+- Cơ chế attention giúp model hiểu ngữ cảnh tốt hơn.",,,
