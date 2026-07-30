@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   AtSign,
+  AlertCircle,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -36,9 +37,44 @@ import {
   X,
 } from "lucide-react";
 import { baseSlides, starterMessages } from "./mockData";
+import { answerQuestion, DEVELOPMENT_COURSE_ID, getDeckSlides, uploadDeck as uploadDeckFile, waitForDeck } from "./api";
 import vinUniLogo from "./assets/vinuni-logo-source.png";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+const demoDeck = {
+  id: "learning-memory",
+  name: "Learning that lasts",
+  slides: baseSlides,
+  updated: "Just now",
+  source: "mock",
+  status: "ready",
+};
+
+const ingestionStageLabel = (deck) => {
+  if (deck.status === "error") return "Processing failed";
+  const labels = {
+    uploaded: "Upload received",
+    parsing: "Reading slides",
+    chunking: "Preparing content",
+    embedding: "Building AI context",
+    indexing: "Indexing slides",
+    text_extraction: "Reading slides",
+    persisting_chunks: "Preparing content",
+    vector_outbox_created: "Building AI context",
+    vector_indexing: "Indexing slides",
+    completed: "Finalizing deck",
+  };
+  return labels[deck.stage] || labels[deck.status] || "Processing slides";
+};
+
+const canonicalSlide = (item) => ({
+  id: item.id,
+  number: item.slide_number,
+  eyebrow: item.section || `SLIDE ${String(item.slide_number).padStart(2, "0")}`,
+  title: item.title || `Slide ${item.slide_number}`,
+  body: item.normalized_text,
+  blocks: item.blocks || [],
+  type: "uploaded",
+});
 
 function LogoMark() {
   return <span className="logo-mark" aria-hidden="true"><img src={vinUniLogo} alt="" /></span>;
@@ -109,7 +145,7 @@ function SlideContent({ slide, compact = false }) {
       <div className="slide-kicker">{slide.eyebrow}</div>
       <h2>{slide.title}</h2>
       {slide.subtitle && <p className="slide-subtitle">{slide.subtitle}</p>}
-      {slide.body && <p className="slide-body">{slide.body}</p>}
+      {slide.body && !(slide.type === "uploaded" && slide.blocks?.length) && <p className="slide-body">{slide.body}</p>}
 
       {slide.type === "cover" && (
         <div className="cover-orbit" aria-hidden="true">
@@ -169,6 +205,16 @@ function SlideContent({ slide, compact = false }) {
         </div>
       )}
 
+      {slide.type === "uploaded" && slide.blocks?.length > 0 && (
+        <div className="uploaded-blocks">
+          {slide.blocks.map((block) => (
+            <p className={`uploaded-block level-${block.bullet_level || 0}`} key={block.id}>
+              {block.bullet_level ? <span aria-hidden="true">•</span> : null}{block.text}
+            </p>
+          ))}
+        </div>
+      )}
+
       <div className="slide-number">{String(slide.number).padStart(2, "0")}</div>
     </div>
   );
@@ -177,20 +223,35 @@ function SlideContent({ slide, compact = false }) {
 function UploadModal({ onClose, onUpload }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState("");
 
-  const acceptFile = (file) => {
-    if (file) onUpload(file);
+  const acceptFile = async (file) => {
+    if (!file || isUploading) return;
+    if (!/\.(pdf|pptx)$/i.test(file.name)) {
+      setError("Please choose a PDF or PPTX file.");
+      return;
+    }
+    setError("");
+    setIsUploading(true);
+    try {
+      await onUpload(file);
+    } catch (uploadError) {
+      setError(uploadError.message || "Upload failed. Please try again.");
+      setIsUploading(false);
+    }
   };
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal upload-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="icon-button modal-close" onClick={onClose} aria-label="Close upload dialog"><X size={18} /></button>
+        <button className="icon-button modal-close" onClick={onClose} aria-label="Close upload dialog" disabled={isUploading}><X size={18} /></button>
         <div className="modal-eyebrow">ADD MATERIAL</div>
         <h2>Upload a slide deck</h2>
-        <p>Bring in a PDF or PowerPoint. This prototype will create a mock preview without parsing the file.</p>
+        <p>Bring in a PDF or PowerPoint. VLearn will process its text and prepare it for grounded tutoring.</p>
         <button
           className={`drop-zone ${dragging ? "is-dragging" : ""}`}
+          disabled={isUploading}
           onClick={() => inputRef.current?.click()}
           onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -200,12 +261,13 @@ function UploadModal({ onClose, onUpload }) {
             acceptFile(event.dataTransfer.files?.[0]);
           }}
         >
-          <span className="upload-icon"><Upload size={22} /></span>
-          <strong>Drop a file here</strong>
-          <span>or click to browse · PDF, PPT, PPTX</span>
+          <span className="upload-icon">{isUploading ? <LoaderCircle className="spin" size={22} /> : <Upload size={22} />}</span>
+          <strong>{isUploading ? "Uploading…" : "Drop a file here"}</strong>
+          <span>{isUploading ? "Keep this window open" : "or click to browse · PDF, PPTX"}</span>
         </button>
-        <input ref={inputRef} type="file" accept=".pdf,.ppt,.pptx" hidden onChange={(event) => acceptFile(event.target.files?.[0])} />
-        <div className="privacy-note"><Check size={14} /> Prototype mode—files are not stored.</div>
+        <input ref={inputRef} type="file" accept=".pdf,.pptx" hidden onChange={(event) => acceptFile(event.target.files?.[0])} />
+        {error && <div className="upload-error" role="alert"><AlertCircle size={14} /> {error}</div>}
+        <div className="privacy-note"><Check size={14} /> Files are securely sent to the VLearn backend.</div>
       </div>
     </div>
   );
@@ -222,7 +284,7 @@ function DeckMenu({ decks, currentDeckId, onSelect, onUpload, onRename, onDelete
         {decks.map((deck) => (
           <button className={`deck-item ${deck.id === currentDeckId ? "active" : ""}`} key={deck.id} onClick={() => onSelect(deck.id)}>
             <span className="deck-file"><FileText size={17} /></span>
-            <span className="deck-copy"><b>{deck.name}</b><small>{deck.slides.length} slides · {deck.updated}</small></span>
+            <span className="deck-copy"><b>{deck.name}</b><small>{deck.status === "ready" ? `${deck.slides.length} slides · ${deck.updated}` : ingestionStageLabel(deck)}</small></span>
             {deck.id === currentDeckId && <Check size={15} />}
             <span className="deck-actions">
               <span role="button" tabIndex={0} aria-label="Rename deck" onClick={(event) => { event.stopPropagation(); onRename(deck.id); }}><Pencil size={13} /></span>
@@ -278,7 +340,7 @@ function ChatMessage({ message, onCitation, onSuggestion }) {
         {message.citations?.length > 0 && (
           <div className="citation-row">
             {message.citations.map((citation) => (
-              <button key={citation.slide} onClick={() => onCitation(citation.slide)}><FileText size={12} /> {citation.label}</button>
+              <button key={`${citation.slide}-${citation.label}`} onClick={() => onCitation(citation.slide)}><FileText size={12} /> {citation.label}</button>
             ))}
           </div>
         )}
@@ -287,17 +349,17 @@ function ChatMessage({ message, onCitation, onSuggestion }) {
             {message.suggestions.map((suggestion) => <button key={suggestion} onClick={() => onSuggestion(suggestion)}>{suggestion}<ArrowRight size={13} /></button>)}
           </div>
         )}
-        {message.role === "assistant" && !message.suggestions && <div className="mock-label">Mock response · no AI connected</div>}
+        {message.role === "assistant" && !message.suggestions && <div className={`response-label ${message.error ? "is-error" : ""}`}>{message.error ? "Could not reach the tutor" : message.mock ? "Mock response · demo deck" : "AI response · grounded in this deck"}</div>}
       </div>
     </div>
   );
 }
 
 function App() {
-  const [decks, setDecks] = useState([{ id: "learning-memory", name: "Learning that lasts", slides: baseSlides, updated: "Just now" }]);
+  const [decks, setDecks] = useState([demoDeck]);
   const [currentDeckId, setCurrentDeckId] = useState("learning-memory");
   const [activeSlide, setActiveSlide] = useState(1);
-  const [messages, setMessages] = useState(starterMessages);
+  const [messagesByDeck, setMessagesByDeck] = useState({ [demoDeck.id]: starterMessages });
   const [draft, setDraft] = useState("");
   const [selectedText, setSelectedText] = useState("");
   const [selectionMenu, setSelectionMenu] = useState(null);
@@ -322,6 +384,13 @@ function App() {
 
   const currentDeck = useMemo(() => decks.find((deck) => deck.id === currentDeckId) || decks[0], [decks, currentDeckId]);
   const slide = currentDeck.slides[activeSlide - 1];
+  const messages = messagesByDeck[currentDeck.id] || starterMessages;
+  const setMessages = (update) => {
+    setMessagesByDeck((allMessages) => {
+      const current = allMessages[currentDeck.id] || starterMessages;
+      return { ...allMessages, [currentDeck.id]: typeof update === "function" ? update(current) : update };
+    });
+  };
   const annotationKey = `${currentDeck.id}:${activeSlide}`;
   const annotationSession = annotationSessions[annotationKey] || { past: [], present: [], future: [] };
   const slideAnnotations = annotationSession.present;
@@ -610,7 +679,7 @@ function App() {
 
   const sendMessage = async (forcedText) => {
     const text = (forcedText || draft).trim();
-    if (!text || isSending) return;
+    if (!text || isSending || currentDeck.status !== "ready" || !slide) return;
     const quote = selectedText;
     const references = parseReferences(text);
     const userMessage = { id: crypto.randomUUID(), role: "user", text, quote };
@@ -620,47 +689,97 @@ function App() {
     setMentionOpen(false);
     setIsSending(true);
 
-    try {
-      const response = await fetch(`${API_BASE}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, deck_id: currentDeck.id, references, selected_text: quote || null }),
-      });
-      if (!response.ok) throw new Error("Mock API unavailable");
-      const data = await response.json();
-      setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", text: data.answer, citations: data.citations }]);
-    } catch {
+    if (currentDeck.source === "mock") {
       await new Promise((resolve) => window.setTimeout(resolve, 550));
       const fallback = quote
         ? "The selected passage is about the limit of active attention. In simpler terms: new information becomes easier to learn when you group related details and connect them to something you already know."
         : "Across the referenced slides, the idea develops from limited attention, to meaningful chunking, to active retrieval. The study strategy is: reduce load, organize the idea, then practise recalling it without looking.";
       const cited = references.length ? Array.from({ length: references[0].end - references[0].start + 1 }, (_, i) => references[0].start + i).slice(0, 4) : [activeSlide];
-      setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", text: fallback, citations: cited.map((n) => ({ slide: n, label: `Slide ${n}` })) }]);
+      setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", text: fallback, mock: true, citations: cited.map((n) => ({ slide: n, label: `Slide ${n}` })) }]);
+      setIsSending(false);
+      return;
+    }
+
+    try {
+      const data = await answerQuestion({
+        conversation_id: currentDeck.conversationId || null,
+        course_id: DEVELOPMENT_COURSE_ID,
+        deck_id: currentDeck.id,
+        current_slide_id: slide.id,
+        selected_text: quote || null,
+        question: text,
+        language: "vi",
+        references,
+      });
+      setDecks((items) => items.map((deck) => deck.id === currentDeck.id ? { ...deck, conversationId: data.conversation_id } : deck));
+      setMessages((items) => [...items, {
+        id: data.message_id || crypto.randomUUID(),
+        role: "assistant",
+        text: data.answer,
+        citations: (data.citations || []).map((citation) => ({
+          slide: citation.slide_number,
+          label: citation.title ? `Slide ${citation.slide_number} · ${citation.title}` : `Slide ${citation.slide_number}`,
+        })),
+      }]);
+    } catch (error) {
+      setMessages((items) => [...items, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: error.message || "The tutor is unavailable right now. Please try again.",
+        error: true,
+      }]);
     } finally {
       setIsSending(false);
     }
   };
 
   const uploadDeck = async (file) => {
-    const valid = /\.(pdf|ppt|pptx)$/i.test(file.name);
-    if (!valid) return;
-    const newDeck = { id: `deck-${Date.now()}`, name: file.name.replace(/\.[^.]+$/, ""), slides: baseSlides.map((item) => ({ ...item })), updated: "Just now" };
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
-      if (response.ok) {
-        const data = await response.json();
-        newDeck.id = data.deck_id;
-        newDeck.name = data.name;
-      }
-    } catch {
-      // UI remains intentionally useful when the mock backend is not running.
-    }
-    setDecks((items) => [...items, newDeck]);
-    setCurrentDeckId(newDeck.id);
+    const name = file.name.replace(/\.[^.]+$/, "");
+    const accepted = await uploadDeckFile(file, name);
+    const deckId = accepted.deck_id;
+    const processingDeck = {
+      id: deckId,
+      versionId: accepted.deck_version_id,
+      name,
+      slides: [],
+      updated: "Processing",
+      source: "backend",
+      status: "processing",
+      stage: accepted.status,
+      conversationId: null,
+    };
+    setDecks((items) => [...items, processingDeck]);
+    setMessagesByDeck((items) => ({ ...items, [deckId]: starterMessages }));
+    setCurrentDeckId(deckId);
     setActiveSlide(1);
     setUploadOpen(false);
+
+    try {
+      await waitForDeck(deckId, (status) => {
+        setDecks((items) => items.map((deck) => deck.id === deckId ? {
+          ...deck,
+          status: "processing",
+          stage: status.stage,
+        } : deck));
+      });
+      const payload = await getDeckSlides(deckId);
+      const slides = payload.slides.map(canonicalSlide).sort((a, b) => a.number - b.number);
+      if (!slides.length) throw new Error("The backend processed this deck but returned no slides.");
+      setDecks((items) => items.map((deck) => deck.id === deckId ? {
+        ...deck,
+        versionId: payload.deck_version_id,
+        slides,
+        status: "ready",
+        stage: "ready",
+        updated: "Just now",
+      } : deck));
+    } catch (error) {
+      setDecks((items) => items.map((deck) => deck.id === deckId ? {
+        ...deck,
+        status: "error",
+        error: error.message || "The slide deck could not be processed.",
+      } : deck));
+    }
   };
 
   const renameDeck = (id) => {
@@ -689,7 +808,7 @@ function App() {
         </div>
         <div className="deck-switcher-wrap">
           <button className="deck-switcher" onClick={() => setDeckMenuOpen((open) => !open)}>
-            <span><b>{currentDeck.name}</b><small>{currentDeck.slides.length} slides</small></span><ChevronDown size={16} />
+            <span><b>{currentDeck.name}</b><small>{currentDeck.status === "ready" ? `${currentDeck.slides.length} slides` : ingestionStageLabel(currentDeck)}</small></span><ChevronDown size={16} />
           </button>
           {deckMenuOpen && <DeckMenu decks={decks} currentDeckId={currentDeckId} onSelect={(id) => { setCurrentDeckId(id); setActiveSlide(1); setDeckMenuOpen(false); }} onUpload={() => { setDeckMenuOpen(false); setUploadOpen(true); }} onRename={renameDeck} onDelete={deleteDeck} onClose={() => setDeckMenuOpen(false)} />}
         </div>
@@ -714,12 +833,18 @@ function App() {
                   <div className="thumb-canvas"><SlideContent slide={item} compact /></div>
                 </button>
               ))}
+              {!currentDeck.slides.length && (
+                <div className={`thumbnail-status ${currentDeck.status === "error" ? "is-error" : ""}`}>
+                  {currentDeck.status === "error" ? <AlertCircle size={18} /> : <LoaderCircle className="spin" size={18} />}
+                  <span>{ingestionStageLabel(currentDeck)}</span>
+                </div>
+              )}
             </div>
           </aside>
 
           <div className="stage-column">
             <div className="stage-toolbar">
-              <div className="slide-position"><span>Slide {activeSlide}</span><span className="divider-dot">·</span><span>{currentDeck.slides.length}</span></div>
+              <div className="slide-position">{slide ? <><span>Slide {activeSlide}</span><span className="divider-dot">·</span><span>{currentDeck.slides.length}</span></> : <span>{ingestionStageLabel(currentDeck)}</span>}</div>
               <AnnotationToolbar
                 tool={annotationTool}
                 expanded={annotationMoreOpen}
@@ -742,25 +867,26 @@ function App() {
                 }}
               />
               <div className="stage-actions">
-                <button className="icon-button" onClick={() => setActiveSlide((n) => Math.max(1, n - 1))} disabled={activeSlide === 1} aria-label="Previous slide"><ArrowLeft size={16} /></button>
-                <button className="icon-button" onClick={() => setActiveSlide((n) => Math.min(currentDeck.slides.length, n + 1))} disabled={activeSlide === currentDeck.slides.length} aria-label="Next slide"><ArrowRight size={16} /></button>
+                <button className="icon-button" onClick={() => setActiveSlide((n) => Math.max(1, n - 1))} disabled={!slide || activeSlide === 1} aria-label="Previous slide"><ArrowLeft size={16} /></button>
+                <button className="icon-button" onClick={() => setActiveSlide((n) => Math.min(currentDeck.slides.length, n + 1))} disabled={!slide || activeSlide === currentDeck.slides.length} aria-label="Next slide"><ArrowRight size={16} /></button>
                 <span className="toolbar-separator" />
-                <button className="icon-button" onClick={() => changeSlideZoom(-0.25)} disabled={slideZoom <= 0.75} aria-label="Zoom out slide"><Minus size={16} /></button>
-                <button className="zoom-value" onClick={resetSlideView} aria-label="Reset slide zoom" title="Reset zoom and position">{Math.round(slideZoom * 100)}%</button>
-                <button className="icon-button" onClick={() => changeSlideZoom(0.25)} disabled={slideZoom >= 2.5} aria-label="Zoom in slide"><Plus size={16} /></button>
+                <button className="icon-button" onClick={() => changeSlideZoom(-0.25)} disabled={!slide || slideZoom <= 0.75} aria-label="Zoom out slide"><Minus size={16} /></button>
+                <button className="zoom-value" onClick={resetSlideView} disabled={!slide} aria-label="Reset slide zoom" title="Reset zoom and position">{Math.round(slideZoom * 100)}%</button>
+                <button className="icon-button" onClick={() => changeSlideZoom(0.25)} disabled={!slide || slideZoom >= 2.5} aria-label="Zoom in slide"><Plus size={16} /></button>
                 <span className="toolbar-separator" />
-                <button className="icon-button" onClick={() => setIsFullscreen((value) => !value)} aria-label="Toggle slide focus"><Maximize2 size={16} /></button>
+                <button className="icon-button" onClick={() => setIsFullscreen((value) => !value)} disabled={!slide} aria-label="Toggle slide focus"><Maximize2 size={16} /></button>
                 <button className="icon-button" aria-label="More options"><MoreHorizontal size={17} /></button>
               </div>
             </div>
 
-            <div className={`slide-stage ${slideZoom > 1 ? "is-zoomed" : ""}`} ref={slideStageRef} onMouseUp={handleSelection}>
-              <div className="slide-scroll-surface" style={{ width: `${slideZoom * 100}%`, maxWidth: `${960 * slideZoom}px` }}>
-                <div
-                  className={`slide-canvas annotation-${annotationTool}`}
-                  style={{ width: `${100 / slideZoom}%`, height: `${100 / slideZoom}%`, transform: `scale(${slideZoom})` }}
-                >
-                  <SlideContent slide={slide} />
+            <div className={`slide-stage ${slideZoom > 1 ? "is-zoomed" : ""} ${!slide ? "is-processing" : ""}`} ref={slideStageRef} onMouseUp={handleSelection}>
+              {slide ? <>
+                <div className="slide-scroll-surface" style={{ width: `${slideZoom * 100}%`, maxWidth: `${960 * slideZoom}px` }}>
+                  <div
+                    className={`slide-canvas annotation-${annotationTool}`}
+                    style={{ width: `${100 / slideZoom}%`, height: `${100 / slideZoom}%`, transform: `scale(${slideZoom})` }}
+                  >
+                    <SlideContent slide={slide} />
                   <div
                     className={`annotation-layer tool-${annotationTool}`}
                     onPointerDown={handleAnnotationPointerDown}
@@ -790,14 +916,24 @@ function App() {
                         style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%`, width: `${item.width * 100}%` }}
                       />
                     ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-              {slideZoom <= 1 && (
+                {slideZoom <= 1 && (
                 <div className="selection-hint">
                   {annotationTool === "select"
                     ? <><MousePointer2 size={13} /> Select text to ask the tutor</>
                     : <><PenLine size={13} /> {annotationTool === "eraser" ? "Click an annotation to erase" : "Annotating this slide"}</>}
+                </div>
+                )}
+              </> : (
+                <div className={`ingestion-state ${currentDeck.status === "error" ? "is-error" : ""}`}>
+                  <span className="ingestion-icon">{currentDeck.status === "error" ? <AlertCircle size={24} /> : <LoaderCircle className="spin" size={24} />}</span>
+                  <div>
+                    <small>{currentDeck.status === "error" ? "DECK UNAVAILABLE" : "PREPARING YOUR DECK"}</small>
+                    <h2>{ingestionStageLabel(currentDeck)}</h2>
+                    <p>{currentDeck.error || "VLearn is extracting the slide text and building grounded tutor context. You can keep working while this finishes."}</p>
+                  </div>
                 </div>
               )}
             </div>
@@ -841,7 +977,7 @@ function App() {
           </div>
 
           <div className="messages" ref={messagesRef}>
-            <div className="context-banner"><FileText size={14} /><span>Using <b>{currentDeck.name}</b></span><span>{currentDeck.slides.length} slides</span></div>
+            <div className="context-banner"><FileText size={14} /><span>Using <b>{currentDeck.name}</b></span><span>{currentDeck.status === "ready" ? `${currentDeck.slides.length} slides` : ingestionStageLabel(currentDeck)}</span></div>
             {messages.map((message) => <ChatMessage key={message.id} message={message} onCitation={(n) => setActiveSlide(Math.min(currentDeck.slides.length, n))} onSuggestion={sendMessage} />)}
             {isSending && <div className="message assistant typing"><div className="assistant-avatar"><Sparkles size={14} /></div><div className="typing-dots"><span /><span /><span /></div></div>}
           </div>
@@ -851,12 +987,13 @@ function App() {
               <div className="selection-attachment"><div><Highlighter size={14} /><span><b>Selected from slide {activeSlide}</b><small>“{selectedText}”</small></span></div><button onClick={() => setSelectedText("")}><X size={14} /></button></div>
             )}
             <div className="composer-wrap">
-              {mentionOpen && <MentionMenu slideCount={currentDeck.slides.length} onInsert={insertReference} onClose={() => setMentionOpen(false)} />}
+              {mentionOpen && currentDeck.slides.length > 0 && <MentionMenu slideCount={currentDeck.slides.length} onInsert={insertReference} onClose={() => setMentionOpen(false)} />}
               <textarea
                 ref={composerRef}
                 value={draft}
                 rows={2}
-                placeholder="Ask about these slides…"
+                placeholder={currentDeck.status === "ready" ? "Ask about these slides…" : "Tutor available after processing…"}
+                disabled={currentDeck.status !== "ready"}
                 onChange={(event) => {
                   setDraft(event.target.value);
                   setMentionOpen(/@[^\s]*$/.test(event.target.value));
@@ -867,13 +1004,13 @@ function App() {
               />
               <div className="composer-tools">
                 <div>
-                  <button className="tool-button" onClick={() => setMentionOpen((open) => !open)} title="Reference slides"><AtSign size={16} /></button>
+                  <button className="tool-button" disabled={currentDeck.status !== "ready"} onClick={() => setMentionOpen((open) => !open)} title="Reference slides"><AtSign size={16} /></button>
                   <button className="tool-button" onClick={() => setUploadOpen(true)} title="Attach a deck"><Paperclip size={16} /></button>
                 </div>
-                <button className="send-button" disabled={!draft.trim() || isSending} onClick={() => sendMessage()} aria-label="Send message"><Send size={16} /></button>
+                <button className="send-button" disabled={!draft.trim() || isSending || currentDeck.status !== "ready"} onClick={() => sendMessage()} aria-label="Send message"><Send size={16} /></button>
               </div>
             </div>
-            <div className="composer-footnote"><span>Type <kbd>@</kbd> to reference slides</span><span>Mock tutor · answers may be inaccurate</span></div>
+            <div className="composer-footnote"><span>Type <kbd>@</kbd> to reference slides</span><span>{currentDeck.source === "backend" ? "Connected to VLearn backend" : "Mock tutor · demo deck"}</span></div>
           </div>
         </section>
       </main>

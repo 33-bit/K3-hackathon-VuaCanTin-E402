@@ -2,7 +2,83 @@ import { expect, test } from "@playwright/test";
 
 test("slide study workflow is interactive", async ({ page }) => {
   const errors = [];
+  let uploadBody = "";
+  let chatPayload = null;
   page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/decks" && request.method() === "POST") {
+      uploadBody = request.postData() || "";
+      await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
+        deck_id: "10000000-0000-0000-0000-000000000001",
+        deck_version_id: "20000000-0000-0000-0000-000000000001",
+        status: "uploaded",
+        status_url: "/api/decks/10000000-0000-0000-0000-000000000001/status",
+      }) });
+      return;
+    }
+    if (path.endsWith("/status")) {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({
+        deck_id: "10000000-0000-0000-0000-000000000001",
+        deck_version_id: "20000000-0000-0000-0000-000000000001",
+        active_version_id: "20000000-0000-0000-0000-000000000001",
+        status: "ready",
+        stage: "completed",
+        slide_count: 2,
+        textless_slide_count: 0,
+        expected_chunk_count: 2,
+        indexed_chunk_count: 2,
+        index_status: "in_sync",
+        error_code: null,
+        error_detail: null,
+        created_at: "2026-07-30T00:00:00Z",
+        ready_at: "2026-07-30T00:00:01Z",
+      }) });
+      return;
+    }
+    if (path.endsWith("/slides")) {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({
+        deck_id: "10000000-0000-0000-0000-000000000001",
+        deck_version_id: "20000000-0000-0000-0000-000000000001",
+        slides: [
+          {
+            id: "30000000-0000-0000-0000-000000000001",
+            slide_number: 1,
+            title: "Jobs to be Done",
+            section: "FOUNDATIONS",
+            normalized_text: "Customers hire products to make progress.",
+            blocks: [{ id: "40000000-0000-0000-0000-000000000001", block_type: "paragraph", reading_order: 1, bullet_level: null, text: "Customers hire products to make progress." }],
+          },
+          {
+            id: "30000000-0000-0000-0000-000000000002",
+            slide_number: 2,
+            title: "Desired outcomes",
+            section: "METHOD",
+            normalized_text: "Define measurable customer outcomes.",
+            blocks: [{ id: "40000000-0000-0000-0000-000000000002", block_type: "paragraph", reading_order: 1, bullet_level: null, text: "Define measurable customer outcomes." }],
+          },
+        ],
+      }) });
+      return;
+    }
+    if (path === "/api/chat/answer") {
+      chatPayload = request.postDataJSON();
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({
+        conversation_id: "50000000-0000-0000-0000-000000000001",
+        message_id: "60000000-0000-0000-0000-000000000001",
+        answer: "A job describes the progress a customer is trying to make.",
+        citations: [{ slide_id: "30000000-0000-0000-0000-000000000001", slide_number: 1, title: "Jobs to be Done", chunk_ids: [] }],
+        confidence: "high",
+        insufficient_evidence: false,
+        missing_content_types: [],
+        retrieval_debug_id: "70000000-0000-0000-0000-000000000001",
+      }) });
+      return;
+    }
+    await route.abort();
+  });
 
   await page.goto("/");
   await expect(page.getByLabel("VLearn - Canteen AI Tutor")).toBeVisible();
@@ -136,7 +212,7 @@ test("slide study workflow is interactive", async ({ page }) => {
   await expect(composer).toHaveValue(/@3–@5/);
 
   await composer.press("Enter");
-  await expect(page.getByText("Mock response · no AI connected").last()).toBeVisible();
+  await expect(page.getByText("Mock response · demo deck").last()).toBeVisible();
   await expect(page.getByRole("button", { name: /Slide 5/ })).toBeVisible();
   await page.getByRole("button", { name: /Slide 5/ }).click();
   await expect(page.locator(".slide-canvas").getByText("Practice bringing the idea back")).toBeVisible();
@@ -146,7 +222,24 @@ test("slide study workflow is interactive", async ({ page }) => {
   await page.getByRole("dialog").locator('input[type="file"]').setInputFiles("../../tham-khao/Strategyn_JTBD_Playbook.pdf");
   await expect(page.getByRole("heading", { name: "Upload a slide deck" })).toBeHidden();
   await expect(page.locator(".deck-switcher b")).toContainText("Strategyn_JTBD_Playbook");
+  await expect(page.locator(".slide-canvas").getByText("Jobs to be Done")).toBeVisible();
+  expect(uploadBody).toContain("00000000-0000-0000-0000-000000000010");
+
+  await composer.fill("What is a job? @1");
+  await composer.press("Enter");
+  await expect(page.getByText("A job describes the progress a customer is trying to make.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Slide 1 · Jobs to be Done/ })).toBeVisible();
+  expect(chatPayload).toMatchObject({
+    conversation_id: null,
+    course_id: "00000000-0000-0000-0000-000000000010",
+    deck_id: "10000000-0000-0000-0000-000000000001",
+    current_slide_id: "30000000-0000-0000-0000-000000000001",
+    question: "What is a job? @1",
+    language: "vi",
+    references: [{ start: 1, end: 1 }],
+  });
 
   expect(errors).toEqual([]);
+  await page.waitForTimeout(350);
   await page.screenshot({ path: "artifacts/folio-slide-tutor.png", fullPage: true });
 });
