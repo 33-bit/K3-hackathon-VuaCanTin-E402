@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -61,7 +61,8 @@ class Settings(BaseSettings):
     retrieval_prefetch_limit: int = 20
     retrieval_fused_limit: int = 12
     retrieval_context_limit: int = 6
-    context_token_budget: int = 6000
+    rerank_min_relevance: float = Field(default=0.35, ge=0, le=1)
+    context_token_budget: int = Field(default=10_000, ge=1_000)
     query_understanding_cache_ttl_seconds: int = 3600
 
     auto_create_schema: bool = False

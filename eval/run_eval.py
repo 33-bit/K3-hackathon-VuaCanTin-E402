@@ -354,7 +354,6 @@ def judge_response(
         "expected_behavior": case["expected"],
         "actual_response": {
             "answer": response.get("answer"),
-            "citations": response.get("citations"),
             "confidence": response.get("confidence"),
             "insufficient_evidence": response.get("insufficient_evidence"),
         },
@@ -367,13 +366,24 @@ def judge_response(
             {
                 "role": "system",
                 "content": (
-                    "Bạn là giám khảo nghiêm khắc cho VLearn AI Tutor. "
-                    "Chỉ chấm theo expected_behavior được cung cấp, không bổ sung "
-                    "kiến thức ngoài. Một case chỉ pass khi câu trả lời thực hiện đúng "
-                    "behavior, chứa đủ must_include_concepts theo nghĩa tương đương, "
-                    "không vi phạm must_not_claim, và hữu ích cho học viên. Citation "
-                    "count/scope đã được code kiểm riêng. Trả về JSON đúng dạng: "
-                    '{"pass": true|false, "reason": "một lý do ngắn", '
+                    "Bạn là giám khảo cho VLearn AI Tutor. Chỉ chấm theo "
+                    "expected_behavior và actual_response được cung cấp, không bổ sung "
+                    "kiến thức ngoài. Hãy kiểm tra từng must_include_concept độc lập. "
+                    "Một concept được tính là đạt khi câu trả lời diễn đạt cùng ý nghĩa, "
+                    "không cần lặp đúng từ khóa; nếu requirement có 'hoặc/or' thì chỉ cần "
+                    "một nhánh. Với must_not_claim, chỉ tính vi phạm khi câu trả lời thực "
+                    "sự khẳng định toàn bộ mệnh đề bị cấm; việc nhắc một từ như 'agent' "
+                    "không đồng nghĩa với nói 'tài liệu chỉ dạy agent'. Không chấm số "
+                    "citation hoặc phạm vi citation vì code đã kiểm riêng và citations "
+                    "không được đưa cho bạn. Mỗi kết luận thiếu/vi phạm phải kèm một trích "
+                    "đoạn ngắn từ actual answer hoặc ghi rõ không tìm thấy. Trước khi trả "
+                    "kết quả, tự kiểm tra reason có mâu thuẫn với actual answer không. "
+                    "Pass chỉ khi behavior đúng, mọi must_include đạt, không must_not nào "
+                    "bị vi phạm và câu trả lời hữu ích. Trả JSON: "
+                    '{"pass": true|false, "reason": "lý do ngắn", '
+                    '"must_include_checks": [{"requirement": "...", "met": true|false, '
+                    '"evidence": "..."}], "must_not_checks": [{"requirement": "...", '
+                    '"violated": true|false, "evidence": "..."}], '
                     '"failed_requirements": ["..."]}.'
                 ),
             },
