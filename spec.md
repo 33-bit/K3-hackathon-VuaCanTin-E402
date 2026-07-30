@@ -113,8 +113,8 @@ Học viên đang học hoặc xem lại bài giảng thường chỉ có ngữ 
 
 | Sản phẩm | Flow họ giải job này | Điều đáng học | Điều đáng né | Nhóm khác gì ở lát cắt này | Người nghiên cứu |
 |---|---|---|---|---|---|
-| [NotebookLM](https://support.google.com/notebooklm/answer/16179559?hl=en) | Nạp tài liệu vào notebook, chọn nguồn cần dùng, hỏi về nội dung hoặc yêu cầu tóm tắt. Câu trả lời có citation; bấm citation sẽ mở vị trí đoạn nguồn trong ngữ cảnh. | Citation phải nằm sát từng claim và dẫn người học trở lại đúng đoạn nguồn. Cho phép thu hẹp tập nguồn khi cần câu trả lời tập trung. | Không mở rộng phạm vi VLearn sang nhiều loại nguồn/multimodal chỉ vì NotebookLM hỗ trợ chúng. Với lát cắt này, không được che giấu trường hợp text không đủ căn cứ. | VLearn nhận câu hỏi cùng slide hiện tại/đoạn bôi đen, chỉ retrieve text từ đúng deck và version đang học, ưu tiên các slide liên quan theo thứ tự bài giảng. Output tóm tắt theo mục/dải slide, hiển thị `[Slide N]` cho ý chính và báo rõ khi text không đủ. | Cả 3 thành viên đã dùng thử; đối chiếu thêm tài liệu chính thức. |
-| [ChatGPT Study Mode](https://help.openai.com/en/articles/11780217-chatgpt-study-mode-faq) | Bật Study Mode, đưa tài liệu học tập hoặc nêu phần cần học. Hệ thống hỏi người học đang biết gì/đang kẹt ở đâu, giải thích theo từng lớp, sau đó đặt câu hỏi hoặc quiz để kiểm tra hiểu biết. | Không chỉ trả lời một lần: bắt đầu ở mức đơn giản, cho phép đi sâu dần và kiểm tra người học đã hiểu hay chưa. Đây là cách giảm nguy cơ người học chỉ đọc bản tóm tắt mà không nắm mối liên hệ. | Không dùng flow Socratic dài cho mọi yêu cầu tóm tắt, vì học viên xem lại tài liệu thường cần một bản tổng hợp có cấu trúc trước. Không giả định upload file luôn đủ chính xác; tài liệu chính thức cũng nêu trường hợp hệ thống có thể bỏ sót nội dung trong file/ảnh. | VLearn không cố thay thế một tutor tổng quát. Lát cắt tập trung vào tóm tắt text-only một mục/dải slide, grounded theo deck/version hiện tại, có citation theo slide và đường lui khi thiếu căn cứ; có thể thêm một câu kiểm tra hiểu sau bản tóm tắt. | Cả 3 thành viên đã dùng thử; đối chiếu thêm tài liệu chính thức. |
+| [NotebookLM](https://support.google.com/notebooklm/answer/16179559?hl=en) | Nạp tài liệu vào notebook, chọn nguồn cần dùng, hỏi về nội dung hoặc yêu cầu tóm tắt. Câu trả lời có citation; bấm citation sẽ mở vị trí đoạn nguồn trong ngữ cảnh. | Citation phải nằm sát từng claim và dẫn người học trở lại đúng đoạn nguồn. Cho phép thu hẹp tập nguồn khi cần câu trả lời tập trung. | Không mở rộng phạm vi VLearn sang nhiều loại nguồn/multimodal chỉ vì NotebookLM hỗ trợ chúng. Với lát cắt này, không được che giấu trường hợp text không đủ căn cứ. | VLearn nhận câu hỏi cùng slide hiện tại/đoạn bôi đen, chỉ retrieve text từ đúng deck và version đang học, ưu tiên các slide liên quan theo thứ tự bài giảng. Output tóm tắt theo mục/dải slide, hiển thị `[Slide N]` cho ý chính và báo rõ khi text không đủ. | Trần Quang Trọng, Hoàng Danh Thái, Nguyễn Quang Huy; đối chiếu thêm tài liệu chính thức. |
+| [ChatGPT Study Mode](https://help.openai.com/en/articles/11780217-chatgpt-study-mode-faq) | Bật Study Mode, đưa tài liệu học tập hoặc nêu phần cần học. Hệ thống hỏi người học đang biết gì/đang kẹt ở đâu, giải thích theo từng lớp, sau đó đặt câu hỏi hoặc quiz để kiểm tra hiểu biết. | Không chỉ trả lời một lần: bắt đầu ở mức đơn giản, cho phép đi sâu dần và kiểm tra người học đã hiểu hay chưa. Đây là cách giảm nguy cơ người học chỉ đọc bản tóm tắt mà không nắm mối liên hệ. | Không dùng flow Socratic dài cho mọi yêu cầu tóm tắt, vì học viên xem lại tài liệu thường cần một bản tổng hợp có cấu trúc trước. Không giả định upload file luôn đủ chính xác; tài liệu chính thức cũng nêu trường hợp hệ thống có thể bỏ sót nội dung trong file/ảnh. | VLearn không cố thay thế một tutor tổng quát. Lát cắt tập trung vào tóm tắt text-only một mục/dải slide, grounded theo deck/version hiện tại, có citation theo slide và đường lui khi thiếu căn cứ; có thể thêm một câu kiểm tra hiểu sau bản tóm tắt. | Trần Quang Trọng, Hoàng Danh Thái, Nguyễn Quang Huy; đối chiếu thêm tài liệu chính thức. |
 
 ---
 
@@ -234,7 +234,7 @@ Học viên đang học hoặc xem lại bài giảng thường chỉ có ngữ 
 - **Tổng số case:** 25, mã `VL-001` đến `VL-025`.
 - **Cơ cấu:** 8 case `normal`; 4 lớp ① `source_truth`; 4 lớp ② `ambiguity`; 4 lớp ③ `authority`; 5 lớp ④ `domain_harm`. Theo độ hiếm có 21 case thường và 4 case hiếm; rarity là trục độc lập.
 - **Case lấy hoặc phát triển từ quan sát thật:** 14, gồm 13 case từ chatlog có `evidence_id`/`turn_id` và 1 case từ lỗi glyph khi tự test slide 29.
-- **Hai người chấm độc lập 5 case khó:** **Chưa có tên/kết quả trong repo. Trước CP5, nhóm phải điền hai tên và chấm ít nhất VL-014, VL-018, VL-022, VL-024, VL-025; không dùng judge tự động thay cho bước này.**
+- **Hai người chấm độc lập 5 case khó:** Trần Quang Trọng và Nguyễn Quang Huy được phân công chấm độc lập VL-014, VL-018, VL-022, VL-024, VL-025. **Kết quả chấm chưa có trong repo; không dùng judge tự động thay cho bước này.**
 
 | Case ID | Loại case | Input | Kết quả mong đợi / rubric | Lớp rủi ro | Nguồn |
 |---|---|---|---|---|---|
@@ -280,23 +280,23 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 
 | Hạng mục | Người phụ trách | Deliverable / đường dẫn | Trạng thái |
 |---|---|---|---|
-| Spec §1–§3 / evidence | `Trong-eng` theo Git history; nhóm bổ sung họ tên + mã HV | `spec.md` §1–§3, workflow asset, multi-slide evidence | Đã hoàn thành nội dung; cần nhóm review số liệu |
-| Spec §4–§9 / backend behavior | `hdthai2005` theo Git identity; nhóm bổ sung họ tên + mã HV | `spec.md` §4–§9, `slide-tutor/backend/app/retrieval/query_policy.py` | Đã hoàn thành bản CP4; chờ full eval lượt 2 |
-| Backend / eval | `hdthai2005` | `slide-tutor/backend/`, `eval/golden_set.json`, `eval/run_eval.py` | Backend local đạt 70 unit test; full eval mới chưa chạy |
-| Frontend / tích hợp prototype | Nguyễn Quang Huy theo Git history; nhóm xác nhận | `slide-tutor/frontend/` | Có UI; cần smoke test end-to-end với backend mới |
-| Demo / slides | **Nhóm chưa ghi người phụ trách trong repo** | `demo-slides.pdf` | Chưa có evidence hoàn thành |
+| Evidence / phân tích phản hồi / spec §1–§3 | Trần Quang Trọng — `2A202601461` | `spec.md` §1–§3, workflow asset, multi-slide evidence | Đã hoàn thành nội dung; cần nhóm review số liệu |
+| Ingest / chunking / vector database / retrieval / RAG | Hoàng Danh Thái — `2A202601527` | `slide-tutor/backend/`, PostgreSQL, Qdrant, BM25/RRF và pipeline citation | Pipeline chạy được; chờ full eval lượt 2 xác nhận chất lượng sau remediation |
+| Golden set / kiểm thử / đánh giá chất lượng | Trần Quang Trọng — `2A202601461` | `eval/golden_set.json`, `eval/run_eval.py`, `eval/results/` | Đã có 25 case và lượt chạy đầu; chưa có kết quả lượt 2 và chấm độc lập |
+| Frontend / tích hợp / validation / báo cáo | Nguyễn Quang Huy — `2A202601954` | `slide-tutor/frontend/`, `validation/feedback-log.md`, báo cáo so sánh phiên bản | Có UI; cần smoke test end-to-end, chạy validation và tạo feedback log |
+| Demo / slides | Hoàng Danh Thái — `2A202601527` | `demo-slides.pdf` | Đã phân công; chưa có evidence hoàn thành |
 
-> Trước khi nộp, thay Git identity bằng họ tên + mã học viên chính xác. Không suy đoán danh tính chỉ để làm đầy bảng.
+> Phân công và mã học viên đã được nhóm xác nhận; trạng thái deliverable cập nhật theo evidence trong repo.
 
 ### 8.2 Willing users và validation CP5
 
 | Người thử (tên/vai) | Willing user? | Task thật giao cho họ | Người quan sát/log | Thời điểm |
 |---|---|---|---|---|
-| **Chưa có tên trong repo — nhóm bổ sung** | Chưa xác nhận | Tóm tắt toàn bộ Day 1, sau đó bấm ít nhất hai citation để kiểm nguồn | Nhóm phân công | Trước dry run |
-| **Chưa có tên trong repo — nhóm bổ sung** | Chưa xác nhận | Tóm tắt slide 21–32 trên deck 29 slide và đánh giá thông báo phần thiếu | Nhóm phân công | Trước dry run |
-| **Chưa có tên trong repo — nhóm bổ sung** | Chưa xác nhận | Hỏi một câu mơ hồ rồi tự sửa bằng selection hoặc `@slide` | Nhóm phân công | Trước dry run |
-| Thành viên zone khác 1 | Chưa mời | Chạy một case không có nguồn hoặc quiz chấm điểm | Nhóm phân công | Trước dry run |
-| Thành viên zone khác 2 | Chưa mời | Upload deck text khác rồi kiểm citation/deck isolation | Nhóm phân công | Trước dry run |
+| Nguyễn Đức Mạnh — học viên ngoài nhóm | Có | Tóm tắt toàn bộ Day 1, sau đó bấm ít nhất hai citation để kiểm nguồn | Nguyễn Quang Huy | Trước dry run |
+| Lê Nguyễn Phước Thành — học viên ngoài nhóm | Có | Tóm tắt slide 21–32 trên deck 29 slide và đánh giá thông báo phần thiếu | Trần Quang Trọng | Trước dry run |
+| Hoàng Văn Nhân — học viên ngoài nhóm | Có | Hỏi một câu mơ hồ rồi tự sửa bằng selection hoặc `@slide` | Nguyễn Quang Huy | Trước dry run |
+| Ngô Quang Anh — học viên ngoài nhóm | Có | Chạy một case không có nguồn hoặc quiz chấm điểm | Trần Quang Trọng | Trước dry run |
+| Lê Nhật Hoàng — học viên ngoài nhóm | Có | Upload deck text khác rồi kiểm citation/deck isolation | Nguyễn Quang Huy | Trước dry run |
 
 - **Mục tiêu validation:** Ít nhất 5 người ngoài nhóm; ưu tiên 3 willing users đã nêu ở CP1.
 - **Đường dẫn feedback log dự kiến:** `validation/feedback-log.md`
@@ -320,12 +320,12 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 
 | Thời điểm | Đổi gì | Vì sao (trỏ về feedback/case/evidence nào) | Ai thực hiện |
 |---|---|---|---|
-| 30/07/2026 16:13 | Tạo spec §1 và workflow RAG text-only | 71/1.261 lượt cần multi-slide; commit `ae38d37` | `Trong-eng` |
-| 30/07/2026, trước CP4 | Hoàn thiện impact và nghiên cứu sản phẩm tương tự ở §2–§3 | Chọn lát cắt B bằng 66/71 lượt evidence; so sánh NotebookLM và ChatGPT Study Mode | Người phụ trách §1–§3; nhóm xác nhận tên |
-| 30/07/2026 16:06–16:07 | Chốt golden set 25 case, quality bar 20/25 + hard gates; lưu lượt chạy đầu 3/25 | CP3 yêu cầu đo thật; giữ đủ pass/fail trong `eval/results/` | Backend |
-| 30/07/2026 16:20–17:00 | Phân tích root cause: current-slide anchoring, thiếu behavior router, range im lặng, context thiếu, rerank bị vô hiệu, output `null`, judge false negative | VL-002, VL-003, VL-008, VL-010–VL-012, VL-018–VL-021, VL-025 | Backend |
-| 30/07/2026 17:00 | Thêm router answer/clarify/refuse/insufficient; chuẩn hóa Day/range; guardrail; null-safe output; context 10k; rerank threshold; judge theo từng requirement | Sửa failure lượt 1 nhưng không đổi quality bar hoặc raw result | `hdthai2005` / backend |
-| 30/07/2026 17:11 | Bổ sung spec §4–§9, giữ nguyên §1–§3 | Đáp ứng CP4: thiết kế, 4 lớp, 12 kịch bản, tiêu chí đo, kết quả và kế hoạch rerun | Backend hỗ trợ; nhóm review |
+| 30/07/2026 16:13 | Tạo spec §1 và workflow RAG text-only | 71/1.261 lượt cần multi-slide; commit `ae38d37` | Trần Quang Trọng |
+| 30/07/2026, trước CP4 | Hoàn thiện impact và nghiên cứu sản phẩm tương tự ở §2–§3 | Chọn lát cắt B bằng 66/71 lượt evidence; so sánh NotebookLM và ChatGPT Study Mode | Trần Quang Trọng |
+| 30/07/2026 16:06–16:07 | Chốt golden set 25 case, quality bar 20/25 + hard gates; lưu lượt chạy đầu 3/25 | CP3 yêu cầu đo thật; giữ đủ pass/fail trong `eval/results/` | Trần Quang Trọng |
+| 30/07/2026 16:20–17:00 | Phân tích root cause: current-slide anchoring, thiếu behavior router, range im lặng, context thiếu, rerank bị vô hiệu, output `null`, judge false negative | VL-002, VL-003, VL-008, VL-010–VL-012, VL-018–VL-021, VL-025 | Hoàng Danh Thái và Trần Quang Trọng |
+| 30/07/2026 17:00 | Thêm router answer/clarify/refuse/insufficient; chuẩn hóa Day/range; guardrail; null-safe output; context 10k; rerank threshold; judge theo từng requirement | Sửa failure lượt 1 nhưng không đổi quality bar hoặc raw result | Hoàng Danh Thái |
+| 30/07/2026 17:11 | Bổ sung spec §4–§9, giữ nguyên §1–§3 | Đáp ứng CP4: thiết kế, 4 lớp, 12 kịch bản, tiêu chí đo, kết quả và kế hoạch rerun | Hoàng Danh Thái (backend), Trần Quang Trọng (test/evidence), Nguyễn Quang Huy (UI/validation) |
 
 ---
 
@@ -342,6 +342,6 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 - [x] Golden set có 25 case, trong đó 13 case từ chatlog và 1 case self-test.
 - [x] Quality bar 80% + hard gates được chốt trước 23:59 N1 và không thay sau lượt chạy 1.
 - [ ] Hai người chấm độc lập 5 case khó và ghi tên/kết quả.
-- [ ] Bổ sung họ tên + mã HV thay cho Git identity trong bảng phân công.
+- [x] Đã bổ sung họ tên, mã HV và người phụ trách demo/slides trong bảng phân công.
 - [ ] Có log validation ít nhất 5 người ngoài nhóm và changelog trỏ về feedback.
 - [ ] Chạy full eval lượt 2 sau remediation và cập nhật kết quả thật.
