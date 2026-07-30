@@ -5,11 +5,111 @@ test("slide study workflow is interactive", async ({ page }) => {
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.goto("/");
-  await expect(page.getByText("Folio", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("VLearn - Canteen AI Tutor")).toBeVisible();
   await expect(page.locator(".slide-canvas").getByText("How memory becomes knowledge")).toBeVisible();
+
+  await page.locator(".deck-switcher").click();
+  const deckMenu = page.locator(".deck-menu");
+  await expect(deckMenu).toBeVisible();
+  const menuBounds = await deckMenu.boundingBox();
+  const workspaceBounds = await page.locator(".workspace").boundingBox();
+  expect(menuBounds.y + menuBounds.height).toBeGreaterThan(workspaceBounds.y);
+  const menuIsTopmost = await page.evaluate(({ x, y }) => {
+    const menu = document.querySelector(".deck-menu");
+    return menu.contains(document.elementFromPoint(x, y));
+  }, { x: menuBounds.x + menuBounds.width / 2, y: menuBounds.y + menuBounds.height - 24 });
+  expect(menuIsTopmost).toBe(true);
+  await deckMenu.getByRole("button").first().click();
+  await expect(deckMenu).toBeHidden();
+
+  const panelSeparator = page.getByRole("separator", { name: "Resize tutor panel" });
+  const tutorPanel = page.locator(".chat-panel");
+  const panelWidthBefore = (await tutorPanel.boundingBox()).width;
+  await panelSeparator.focus();
+  await panelSeparator.press("ArrowLeft");
+  expect((await tutorPanel.boundingBox()).width).toBeGreaterThan(panelWidthBefore);
+  await page.getByRole("button", { name: "Hide tutor panel" }).click();
+  await expect(page.locator(".workspace")).toHaveClass(/chat-closed/);
+  await page.getByRole("button", { name: "Show tutor panel" }).click();
+  await expect(page.locator(".workspace")).not.toHaveClass(/chat-closed/);
 
   await page.getByRole("button", { name: "Open slide 3" }).click();
   await expect(page.locator(".slide-canvas").getByText("Attention is a narrow workspace")).toBeVisible();
+
+  for (let step = 0; step < 6; step += 1) await page.getByRole("button", { name: "Zoom in slide" }).click();
+  await expect(page.getByRole("button", { name: "Reset slide zoom" })).toHaveText("250%");
+  await expect(page.getByText("Select text to ask the tutor")).toBeHidden();
+  const slideStage = page.locator(".slide-stage");
+  const scrollMetrics = await slideStage.evaluate((node) => ({
+    horizontal: node.scrollWidth > node.clientWidth,
+    vertical: node.scrollHeight > node.clientHeight,
+    scrollWidth: node.scrollWidth,
+    clientWidth: node.clientWidth,
+    scrollHeight: node.scrollHeight,
+    clientHeight: node.clientHeight,
+  }));
+  expect(scrollMetrics.horizontal).toBe(true);
+  expect(scrollMetrics.vertical).toBe(true);
+  await expect.poll(() => slideStage.evaluate((node) => node.scrollLeft + node.scrollTop)).toBe(0);
+  const originBounds = await page.evaluate(() => {
+    const stage = document.querySelector(".slide-stage");
+    const surface = document.querySelector(".slide-scroll-surface");
+    return {
+      stageLeft: stage.getBoundingClientRect().left,
+      stageTop: stage.getBoundingClientRect().top,
+      surfaceLeft: surface.getBoundingClientRect().left,
+      surfaceTop: surface.getBoundingClientRect().top,
+    };
+  });
+  expect(originBounds.surfaceLeft).toBeGreaterThanOrEqual(originBounds.stageLeft);
+  expect(originBounds.surfaceTop).toBeGreaterThanOrEqual(originBounds.stageTop);
+  await slideStage.evaluate((node) => node.scrollTo({ left: node.scrollWidth, top: node.scrollHeight }));
+  await expect.poll(() => slideStage.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+  await expect.poll(() => slideStage.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await slideStage.evaluate((node) => node.scrollTo({ left: 0, top: 0 }));
+  await expect.poll(() => slideStage.evaluate((node) => node.scrollLeft + node.scrollTop)).toBe(0);
+  await page.getByRole("button", { name: "Reset slide zoom" }).click();
+  await expect(page.getByRole("button", { name: "Reset slide zoom" })).toHaveText("100%");
+  await expect(page.getByText("Select text to ask the tutor")).toBeVisible();
+  await expect.poll(() => slideStage.evaluate((node) => node.scrollLeft + node.scrollTop)).toBe(0);
+
+  await expect(page.getByLabel("Slide annotation tools")).toBeVisible();
+  await page.getByRole("button", { name: "Pen annotation tool" }).click();
+  const annotationLayer = page.locator(".annotation-layer");
+  const annotationBox = await annotationLayer.boundingBox();
+  await page.mouse.move(annotationBox.x + 220, annotationBox.y + 210);
+  await page.mouse.down();
+  await page.mouse.move(annotationBox.x + 390, annotationBox.y + 270, { steps: 8 });
+  await page.mouse.up();
+  await expect(annotationLayer.locator("polyline")).toHaveCount(1);
+  await page.keyboard.press("Control+z");
+  await expect(annotationLayer.locator("polyline")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Redo annotation" })).toBeEnabled();
+  await page.keyboard.press("Control+Shift+z");
+  await expect(annotationLayer.locator("polyline")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "More annotation tools" }).click();
+  await page.getByRole("button", { name: "Shape annotation tool" }).click();
+  await page.mouse.move(annotationBox.x + 440, annotationBox.y + 150);
+  await page.mouse.down();
+  await page.mouse.move(annotationBox.x + 600, annotationBox.y + 300, { steps: 5 });
+  await page.mouse.up();
+  await expect(annotationLayer.locator("ellipse")).toHaveCount(1);
+
+  page.once("dialog", (dialog) => dialog.accept("Review this definition"));
+  await page.getByRole("button", { name: "Text annotation tool" }).click();
+  await page.mouse.click(annotationBox.x + 260, annotationBox.y + 340);
+  await expect(annotationLayer.getByText("Review this definition")).toBeVisible();
+
+  await page.getByRole("button", { name: "Select annotation tool" }).click();
+
+  await page.getByRole("button", { name: "Toggle slide focus" }).click();
+  await expect(page.locator(".slide-workspace")).toHaveClass(/is-fullscreen/);
+  const fullscreenCanvas = await page.locator(".slide-canvas").boundingBox();
+  expect(fullscreenCanvas.width).toBeGreaterThan(900);
+  expect(fullscreenCanvas.height).toBeGreaterThan(500);
+  await page.getByRole("button", { name: "Toggle slide focus" }).click();
+  await expect(page.locator(".slide-workspace")).not.toHaveClass(/is-fullscreen/);
 
   await page.evaluate(() => {
     const target = document.querySelector(".slide-canvas .slide-body");
@@ -43,7 +143,7 @@ test("slide study workflow is interactive", async ({ page }) => {
 
   await page.getByRole("button", { name: /Upload/ }).first().click();
   await expect(page.getByRole("heading", { name: "Upload a slide deck" })).toBeVisible();
-  await page.locator('input[type="file"]').setInputFiles("../../tham-khao/Strategyn_JTBD_Playbook.pdf");
+  await page.getByRole("dialog").locator('input[type="file"]').setInputFiles("../../tham-khao/Strategyn_JTBD_Playbook.pdf");
   await expect(page.getByRole("heading", { name: "Upload a slide deck" })).toBeHidden();
   await expect(page.locator(".deck-switcher b")).toContainText("Strategyn_JTBD_Playbook");
 
