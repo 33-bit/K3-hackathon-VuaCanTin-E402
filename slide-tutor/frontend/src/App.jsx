@@ -5,31 +5,102 @@ import {
   AtSign,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Eraser,
   FileText,
   FolderOpen,
   Highlighter,
+  ImagePlus,
   Library,
   LoaderCircle,
   Maximize2,
   Menu,
   MessageSquareText,
+  Minus,
+  MousePointer2,
   MoreHorizontal,
   Paperclip,
   Pencil,
+  PenLine,
   Plus,
   Search,
   Send,
   Sparkles,
   Trash2,
+  Type,
+  Undo2,
   Upload,
+  Redo2,
   X,
 } from "lucide-react";
 import { baseSlides, starterMessages } from "./mockData";
+import vinUniLogo from "./assets/vinuni-logo-source.png";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 function LogoMark() {
-  return <span className="logo-mark">F</span>;
+  return <span className="logo-mark" aria-hidden="true"><img src={vinUniLogo} alt="" /></span>;
+}
+
+const primaryAnnotationTools = [
+  { id: "select", label: "Select", icon: MousePointer2 },
+  { id: "pen", label: "Pen", icon: PenLine },
+  { id: "highlight", label: "Highlight", icon: Highlighter },
+];
+
+const secondaryAnnotationTools = [
+  { id: "shape", label: "Shape", icon: Circle },
+  { id: "text", label: "Text", icon: Type },
+  { id: "image", label: "Image", icon: ImagePlus },
+  { id: "eraser", label: "Eraser", icon: Eraser },
+];
+
+function AnnotationToolbar({ tool, expanded, onTool, onToggleMore, onImage, canUndo, canRedo, onUndo, onRedo }) {
+  const chooseTool = (id) => {
+    if (id === "image") onImage();
+    onTool(id);
+  };
+
+  const ToolButton = ({ item }) => {
+    const Icon = item.icon;
+    return (
+      <button
+        className={`annotation-button ${tool === item.id ? "active" : ""}`}
+        onClick={() => chooseTool(item.id)}
+        aria-label={`${item.label} annotation tool`}
+        aria-pressed={tool === item.id}
+      >
+        <Icon size={15} />
+        <span>{item.label}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="annotation-toolbar" aria-label="Slide annotation tools">
+      <div className="annotation-primary">
+        {primaryAnnotationTools.map((item) => <ToolButton item={item} key={item.id} />)}
+        <button
+          className={`annotation-more ${expanded ? "active" : ""}`}
+          onClick={onToggleMore}
+          aria-label="More annotation tools"
+          aria-expanded={expanded}
+        >
+          <MoreHorizontal size={17} />
+        </button>
+        <span className="annotation-divider" />
+        <button className="annotation-history" onClick={onUndo} disabled={!canUndo} aria-label="Undo annotation" aria-keyshortcuts="Control+Z Meta+Z" title="Undo annotation (⌘Z / Ctrl+Z)"><Undo2 size={15} /></button>
+        <button className="annotation-history" onClick={onRedo} disabled={!canRedo} aria-label="Redo annotation" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y" title="Redo annotation (⇧⌘Z / Ctrl+Shift+Z)"><Redo2 size={15} /></button>
+      </div>
+      {expanded && (
+        <div className="annotation-secondary">
+          {secondaryAnnotationTools.map((item) => <ToolButton item={item} key={item.id} />)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SlideContent({ slide, compact = false }) {
@@ -235,11 +306,79 @@ function App() {
   const [deckMenuOpen, setDeckMenuOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [annotationTool, setAnnotationTool] = useState("select");
+  const [annotationMoreOpen, setAnnotationMoreOpen] = useState(false);
+  const [annotationSessions, setAnnotationSessions] = useState({});
+  const [draftAnnotation, setDraftAnnotation] = useState(null);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [chatWidth, setChatWidth] = useState(() => Number(window.localStorage.getItem("vlearn-chat-width")) || 430);
+  const [resizingChat, setResizingChat] = useState(false);
+  const [slideZoom, setSlideZoom] = useState(1);
   const composerRef = useRef(null);
   const messagesRef = useRef(null);
+  const annotationImageRef = useRef(null);
+  const workspaceRef = useRef(null);
+  const slideStageRef = useRef(null);
 
   const currentDeck = useMemo(() => decks.find((deck) => deck.id === currentDeckId) || decks[0], [decks, currentDeckId]);
   const slide = currentDeck.slides[activeSlide - 1];
+  const annotationKey = `${currentDeck.id}:${activeSlide}`;
+  const annotationSession = annotationSessions[annotationKey] || { past: [], present: [], future: [] };
+  const slideAnnotations = annotationSession.present;
+
+  useEffect(() => {
+    window.localStorage.setItem("vlearn-chat-width", String(chatWidth));
+  }, [chatWidth]);
+
+  useEffect(() => {
+    if (!resizingChat) return undefined;
+    const resize = (event) => {
+      const rect = workspaceRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const maximum = Math.min(680, rect.width - 590);
+      setChatWidth(Math.max(340, Math.min(maximum, rect.right - event.clientX)));
+    };
+    const stop = () => setResizingChat(false);
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", stop, { once: true });
+    document.body.classList.add("is-resizing-panel");
+    return () => {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", stop);
+      document.body.classList.remove("is-resizing-panel");
+    };
+  }, [resizingChat]);
+
+  useEffect(() => {
+    setSlideZoom(1);
+    slideStageRef.current?.scrollTo({ left: 0, top: 0 });
+  }, [annotationKey]);
+
+  useEffect(() => {
+    let secondFrame;
+    const firstFrame = window.requestAnimationFrame(() => {
+      slideStageRef.current?.scrollTo({ left: 0, top: 0, behavior: "auto" });
+      secondFrame = window.requestAnimationFrame(() => {
+        slideStageRef.current?.scrollTo({ left: 0, top: 0, behavior: "auto" });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [slideZoom]);
+
+  const changeSlideZoom = (amount) => {
+    setSlideZoom((value) => {
+      const next = Math.max(0.75, Math.min(2.5, Math.round((value + amount) * 4) / 4));
+      return next;
+    });
+  };
+
+  const resetSlideView = () => {
+    setSlideZoom(1);
+    slideStageRef.current?.scrollTo({ left: 0, top: 0 });
+  };
 
   useEffect(() => {
     const node = messagesRef.current;
@@ -258,6 +397,7 @@ function App() {
   }, [currentDeck.slides.length]);
 
   const handleSelection = (event) => {
+    if (annotationTool !== "select") return;
     const stage = event.currentTarget;
     const { clientX, clientY } = event;
     window.setTimeout(() => {
@@ -269,6 +409,182 @@ function App() {
         setSelectionMenu(null);
       }
     }, 0);
+  };
+
+  const annotationPoint = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    };
+  };
+
+  const updateAnnotations = (transform) => {
+    setAnnotationSessions((sessions) => {
+      const session = sessions[annotationKey] || { past: [], present: [], future: [] };
+      const next = transform(session.present);
+      return {
+        ...sessions,
+        [annotationKey]: {
+          past: [...session.past, session.present],
+          present: next,
+          future: [],
+        },
+      };
+    });
+  };
+
+  const addAnnotation = (annotation) => {
+    updateAnnotations((items) => [...items, annotation]);
+  };
+
+  const removeAnnotation = (id) => {
+    updateAnnotations((items) => items.filter((item) => item.id !== id));
+  };
+
+  const undoAnnotation = () => {
+    setAnnotationSessions((sessions) => {
+      const session = sessions[annotationKey] || { past: [], present: [], future: [] };
+      if (!session.past.length) return sessions;
+      const previous = session.past.at(-1);
+      return {
+        ...sessions,
+        [annotationKey]: {
+          past: session.past.slice(0, -1),
+          present: previous,
+          future: [session.present, ...session.future],
+        },
+      };
+    });
+  };
+
+  const redoAnnotation = () => {
+    setAnnotationSessions((sessions) => {
+      const session = sessions[annotationKey] || { past: [], present: [], future: [] };
+      if (!session.future.length) return sessions;
+      const [next, ...future] = session.future;
+      return {
+        ...sessions,
+        [annotationKey]: {
+          past: [...session.past, session.present],
+          present: next,
+          future,
+        },
+      };
+    });
+  };
+
+  useEffect(() => {
+    const handleAnnotationShortcut = (event) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+      const key = event.key.toLowerCase();
+      const modifier = event.metaKey || event.ctrlKey;
+      const undo = modifier && key === "z" && !event.shiftKey;
+      const redo = modifier && ((key === "z" && event.shiftKey) || (event.ctrlKey && key === "y"));
+      if (!undo && !redo) return;
+      event.preventDefault();
+      if (undo) undoAnnotation();
+      if (redo) redoAnnotation();
+    };
+    window.addEventListener("keydown", handleAnnotationShortcut);
+    return () => window.removeEventListener("keydown", handleAnnotationShortcut);
+  }, [annotationKey]);
+
+  const handleAnnotationPointerDown = (event) => {
+    if (annotationTool === "select" || annotationTool === "image") return;
+    if (annotationTool === "eraser") {
+      const target = event.target.closest?.("[data-annotation-id]");
+      if (target) removeAnnotation(target.dataset.annotationId);
+      return;
+    }
+
+    const point = annotationPoint(event);
+    if (annotationTool === "text") {
+      const value = window.prompt("Add a text note");
+      if (value?.trim()) addAnnotation({ id: crypto.randomUUID(), type: "text", ...point, text: value.trim() });
+      return;
+    }
+
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (annotationTool === "shape") {
+      setDraftAnnotation({ id: crypto.randomUUID(), type: "shape", start: point, end: point });
+      return;
+    }
+
+    setDraftAnnotation({
+      id: crypto.randomUUID(),
+      type: "path",
+      variant: annotationTool,
+      points: [point],
+    });
+  };
+
+  const handleAnnotationPointerMove = (event) => {
+    if (!draftAnnotation || !event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+    const point = annotationPoint(event);
+    setDraftAnnotation((item) => item?.type === "shape"
+      ? { ...item, end: point }
+      : { ...item, points: [...item.points, point] });
+  };
+
+  const handleAnnotationPointerUp = (event) => {
+    if (!draftAnnotation) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    addAnnotation(draftAnnotation);
+    setDraftAnnotation(null);
+  };
+
+  const addAnnotationImage = (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => addAnnotation({
+      id: crypto.randomUUID(),
+      type: "image",
+      x: 0.34,
+      y: 0.27,
+      width: 0.32,
+      src: reader.result,
+    });
+    reader.readAsDataURL(file);
+  };
+
+  const renderAnnotation = (annotation) => {
+    if (annotation.type === "path") {
+      const points = annotation.points.map((point) => `${point.x * 1000},${point.y * 562.5}`).join(" ");
+      return (
+        <polyline
+          key={annotation.id}
+          data-annotation-id={annotation.id}
+          points={points}
+          fill="none"
+          stroke={annotation.variant === "highlight" ? "#f2bf3e" : "#1f4f8d"}
+          strokeWidth={annotation.variant === "highlight" ? 20 : 4}
+          strokeOpacity={annotation.variant === "highlight" ? 0.38 : 0.92}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      );
+    }
+    if (annotation.type === "shape") {
+      const cx = ((annotation.start.x + annotation.end.x) / 2) * 1000;
+      const cy = ((annotation.start.y + annotation.end.y) / 2) * 562.5;
+      return (
+        <ellipse
+          key={annotation.id}
+          data-annotation-id={annotation.id}
+          cx={cx}
+          cy={cy}
+          rx={Math.abs(annotation.end.x - annotation.start.x) * 500}
+          ry={Math.abs(annotation.end.y - annotation.start.y) * 281.25}
+          fill="none"
+          stroke="#c84a4f"
+          strokeWidth="3"
+          vectorEffect="non-scaling-stroke"
+        />
+      );
+    }
+    return null;
   };
 
   const attachSelection = () => {
@@ -364,7 +680,13 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><LogoMark /><span>Folio</span></div>
+        <div className="brand" aria-label="VLearn - Canteen AI Tutor">
+          <LogoMark />
+          <span className="brand-wordmark">
+            <strong><span>V</span>Learn <em>- Canteen</em></strong>
+            <small>AI TUTOR</small>
+          </span>
+        </div>
         <div className="deck-switcher-wrap">
           <button className="deck-switcher" onClick={() => setDeckMenuOpen((open) => !open)}>
             <span><b>{currentDeck.name}</b><small>{currentDeck.slides.length} slides</small></span><ChevronDown size={16} />
@@ -377,10 +699,14 @@ function App() {
         </div>
       </header>
 
-      <main className="workspace">
+      <main
+        ref={workspaceRef}
+        className={`workspace ${chatOpen ? "" : "chat-closed"} ${resizingChat ? "is-resizing" : ""}`}
+        style={{ gridTemplateColumns: chatOpen ? `minmax(590px, 1fr) ${chatWidth}px` : "minmax(590px, 1fr) 0px" }}
+      >
         <section className={`slide-workspace ${isFullscreen ? "is-fullscreen" : ""}`}>
           <aside className="thumbnail-rail">
-            <div className="rail-title"><span>SLIDES</span><button className="icon-button tiny" onClick={() => setUploadOpen(true)} aria-label="Add deck"><Plus size={14} /></button></div>
+            <div className="rail-title"><span>SLIDES</span></div>
             <div className="thumbnail-list">
               {currentDeck.slides.map((item) => (
                 <button key={item.number} className={`thumbnail ${activeSlide === item.number ? "active" : ""}`} onClick={() => setActiveSlide(item.number)} aria-label={`Open slide ${item.number}`}>
@@ -394,21 +720,119 @@ function App() {
           <div className="stage-column">
             <div className="stage-toolbar">
               <div className="slide-position"><span>Slide {activeSlide}</span><span className="divider-dot">·</span><span>{currentDeck.slides.length}</span></div>
+              <AnnotationToolbar
+                tool={annotationTool}
+                expanded={annotationMoreOpen}
+                onTool={setAnnotationTool}
+                onToggleMore={() => setAnnotationMoreOpen((open) => !open)}
+                onImage={() => annotationImageRef.current?.click()}
+                canUndo={annotationSession.past.length > 0}
+                canRedo={annotationSession.future.length > 0}
+                onUndo={undoAnnotation}
+                onRedo={redoAnnotation}
+              />
+              <input
+                ref={annotationImageRef}
+                className="annotation-image-input"
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  addAnnotationImage(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
               <div className="stage-actions">
                 <button className="icon-button" onClick={() => setActiveSlide((n) => Math.max(1, n - 1))} disabled={activeSlide === 1} aria-label="Previous slide"><ArrowLeft size={16} /></button>
                 <button className="icon-button" onClick={() => setActiveSlide((n) => Math.min(currentDeck.slides.length, n + 1))} disabled={activeSlide === currentDeck.slides.length} aria-label="Next slide"><ArrowRight size={16} /></button>
+                <span className="toolbar-separator" />
+                <button className="icon-button" onClick={() => changeSlideZoom(-0.25)} disabled={slideZoom <= 0.75} aria-label="Zoom out slide"><Minus size={16} /></button>
+                <button className="zoom-value" onClick={resetSlideView} aria-label="Reset slide zoom" title="Reset zoom and position">{Math.round(slideZoom * 100)}%</button>
+                <button className="icon-button" onClick={() => changeSlideZoom(0.25)} disabled={slideZoom >= 2.5} aria-label="Zoom in slide"><Plus size={16} /></button>
                 <span className="toolbar-separator" />
                 <button className="icon-button" onClick={() => setIsFullscreen((value) => !value)} aria-label="Toggle slide focus"><Maximize2 size={16} /></button>
                 <button className="icon-button" aria-label="More options"><MoreHorizontal size={17} /></button>
               </div>
             </div>
 
-            <div className="slide-stage" onMouseUp={handleSelection}>
-              <div className="slide-canvas"><SlideContent slide={slide} /></div>
-              <div className="selection-hint"><Highlighter size={13} /> Select any text to ask the tutor</div>
+            <div className={`slide-stage ${slideZoom > 1 ? "is-zoomed" : ""}`} ref={slideStageRef} onMouseUp={handleSelection}>
+              <div className="slide-scroll-surface" style={{ width: `${slideZoom * 100}%`, maxWidth: `${960 * slideZoom}px` }}>
+                <div
+                  className={`slide-canvas annotation-${annotationTool}`}
+                  style={{ width: `${100 / slideZoom}%`, height: `${100 / slideZoom}%`, transform: `scale(${slideZoom})` }}
+                >
+                  <SlideContent slide={slide} />
+                  <div
+                    className={`annotation-layer tool-${annotationTool}`}
+                    onPointerDown={handleAnnotationPointerDown}
+                    onPointerMove={handleAnnotationPointerMove}
+                    onPointerUp={handleAnnotationPointerUp}
+                    onPointerCancel={() => setDraftAnnotation(null)}
+                  >
+                    <svg viewBox="0 0 1000 562.5" preserveAspectRatio="none" aria-label="Slide annotations">
+                      {slideAnnotations.filter((item) => item.type === "path" || item.type === "shape").map(renderAnnotation)}
+                      {draftAnnotation && renderAnnotation(draftAnnotation)}
+                    </svg>
+                    {slideAnnotations.filter((item) => item.type === "text").map((item) => (
+                      <span
+                        className="text-annotation"
+                        data-annotation-id={item.id}
+                        key={item.id}
+                        style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%` }}
+                      >{item.text}</span>
+                    ))}
+                    {slideAnnotations.filter((item) => item.type === "image").map((item) => (
+                      <img
+                        className="image-annotation"
+                        data-annotation-id={item.id}
+                        key={item.id}
+                        src={item.src}
+                        alt="User annotation"
+                        style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%`, width: `${item.width * 100}%` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {slideZoom <= 1 && (
+                <div className="selection-hint">
+                  {annotationTool === "select"
+                    ? <><MousePointer2 size={13} /> Select text to ask the tutor</>
+                    : <><PenLine size={13} /> {annotationTool === "eraser" ? "Click an annotation to erase" : "Annotating this slide"}</>}
+                </div>
+              )}
             </div>
           </div>
         </section>
+
+        <div
+          className={`panel-resizer ${chatOpen ? "" : "closed"}`}
+          style={{ right: chatOpen ? `${chatWidth - 7}px` : "-1px" }}
+          role="separator"
+          aria-label="Resize tutor panel"
+          aria-orientation="vertical"
+          aria-valuemin="340"
+          aria-valuemax="680"
+          aria-valuenow={chatOpen ? chatWidth : 0}
+          tabIndex={0}
+          onPointerDown={(event) => {
+            if (event.target.closest("button") || !chatOpen) return;
+            event.preventDefault();
+            setResizingChat(true);
+          }}
+          onKeyDown={(event) => {
+            if (!chatOpen || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+            event.preventDefault();
+            setChatWidth((value) => Math.max(340, Math.min(680, value + (event.key === "ArrowLeft" ? 20 : -20))));
+          }}
+        >
+          <button
+            className="panel-toggle"
+            onClick={() => setChatOpen((open) => !open)}
+            aria-label={chatOpen ? "Hide tutor panel" : "Show tutor panel"}
+          >
+            {chatOpen ? <ChevronRight size={19} /> : <ChevronLeft size={19} />}
+          </button>
+        </div>
 
         <section className="chat-panel">
           <div className="chat-header">
