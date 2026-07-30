@@ -263,6 +263,12 @@ test("slide study workflow is interactive", async ({ page }) => {
     references: [{ start: 1, end: 1 }],
   });
 
+  await page.reload();
+  await expect(page.locator(".deck-switcher b")).toContainText("d1-slide-hackathon");
+  await expect(page.locator(".slide-canvas .react-pdf__Page__canvas")).toBeVisible();
+  await expect(page.getByText("What is this course about? @1")).toBeVisible();
+  await expect(page.getByText("The course explains what happens inside modern AI and large language models.")).toBeVisible();
+
   expect(errors).toEqual([]);
   await page.waitForTimeout(350);
   await page.screenshot({ path: "artifacts/folio-slide-tutor.png", fullPage: true });

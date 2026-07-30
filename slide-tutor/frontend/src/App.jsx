@@ -40,6 +40,7 @@ import {
 import { baseSlides, starterMessages } from "./mockData";
 import { answerQuestion, DEVELOPMENT_COURSE_ID, getDeckSlides, uploadDeck as uploadDeckFile, waitForDeck } from "./api";
 import PdfSlide from "./PdfSlide";
+import { deleteDeckPdf, getDeckPdf, loadWorkspace, saveDeckPdf, saveWorkspace } from "./persistence";
 import vinUniLogo from "./assets/vinuni-logo-source.png";
 
 const demoDeck = {
@@ -360,10 +361,17 @@ function ChatMessage({ message, onCitation, onSuggestion }) {
 }
 
 function App() {
-  const [decks, setDecks] = useState([demoDeck]);
-  const [currentDeckId, setCurrentDeckId] = useState("learning-memory");
-  const [activeSlide, setActiveSlide] = useState(1);
-  const [messagesByDeck, setMessagesByDeck] = useState({ [demoDeck.id]: starterMessages });
+  const initialWorkspaceRef = useRef(null);
+  if (initialWorkspaceRef.current === null) initialWorkspaceRef.current = loadWorkspace() || {};
+  const initialWorkspace = initialWorkspaceRef.current;
+  const initialDecks = initialWorkspace.decks || [demoDeck];
+  const initialDeckId = initialDecks.some((deck) => deck.id === initialWorkspace.currentDeckId)
+    ? initialWorkspace.currentDeckId
+    : initialDecks[0].id;
+  const [decks, setDecks] = useState(initialDecks);
+  const [currentDeckId, setCurrentDeckId] = useState(initialDeckId);
+  const [activeSlide, setActiveSlide] = useState(initialWorkspace.activeSlide || 1);
+  const [messagesByDeck, setMessagesByDeck] = useState(initialWorkspace.messagesByDeck || { [demoDeck.id]: starterMessages });
   const [draft, setDraft] = useState("");
   const [selectedText, setSelectedText] = useState("");
   const [selectionMenu, setSelectionMenu] = useState(null);
@@ -403,6 +411,39 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem("vlearn-chat-width", String(chatWidth));
   }, [chatWidth]);
+
+  useEffect(() => {
+    saveWorkspace({
+      decks: decks.map(({ previewUrl: _previewUrl, ...deck }) => deck),
+      currentDeckId,
+      activeSlide,
+      messagesByDeck,
+    });
+  }, [activeSlide, currentDeckId, decks, messagesByDeck]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restorePdfPreviews = async () => {
+      const storedDecks = decks.filter((deck) => deck.source === "backend" && !deck.previewUrl);
+      for (const deck of storedDecks) {
+        try {
+          const pdf = await getDeckPdf(deck.id);
+          if (!pdf || cancelled) continue;
+          const previewUrl = URL.createObjectURL(pdf);
+          previewUrlsRef.current.add(previewUrl);
+          setDecks((items) => items.map((item) => item.id === deck.id && !item.previewUrl
+            ? { ...item, previewUrl }
+            : item));
+        } catch (error) {
+          console.warn(`Unable to restore PDF for deck ${deck.id}.`, error);
+        }
+      }
+    };
+
+    restorePdfPreviews();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => () => {
     previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -749,6 +790,13 @@ function App() {
     const deckId = accepted.deck_id;
     const previewUrl = /\.pdf$/i.test(file.name) ? URL.createObjectURL(file) : null;
     if (previewUrl) previewUrlsRef.current.add(previewUrl);
+    if (previewUrl) {
+      try {
+        await saveDeckPdf(deckId, file);
+      } catch (error) {
+        console.warn("Unable to preserve the uploaded PDF after refresh.", error);
+      }
+    }
     const processingDeck = {
       id: deckId,
       versionId: accepted.deck_version_id,
@@ -807,7 +855,13 @@ function App() {
       URL.revokeObjectURL(removedDeck.previewUrl);
       previewUrlsRef.current.delete(removedDeck.previewUrl);
     }
+    deleteDeckPdf(id).catch((error) => console.warn(`Unable to remove stored PDF for deck ${id}.`, error));
     setDecks((items) => items.filter((item) => item.id !== id));
+    setMessagesByDeck((items) => {
+      const next = { ...items };
+      delete next[id];
+      return next;
+    });
     if (id === currentDeckId) {
       const next = decks.find((item) => item.id !== id);
       if (next) setCurrentDeckId(next.id);
