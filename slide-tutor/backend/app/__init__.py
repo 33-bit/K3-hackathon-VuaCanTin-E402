@@ -1,2 +1,1 @@
-"""Folio mock backend."""
-
+"""PostgreSQL- and Qdrant-backed Folio Slide Tutor service."""

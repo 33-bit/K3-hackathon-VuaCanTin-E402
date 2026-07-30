@@ -1,3 +1,10 @@
 __pycache__/
 *.py[cod]
+.coverage
+.env
+.pytest_cache/
+.ruff_cache/
+.venv/
+data/
+htmlcov/
 
