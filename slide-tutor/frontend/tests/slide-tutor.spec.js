@@ -4,6 +4,28 @@ test("slide study workflow is interactive", async ({ page }) => {
   const errors = [];
   let uploadBody = "";
   let chatPayload = null;
+  const uploadedSlides = Array.from({ length: 29 }, (_, index) => {
+    const slideNumber = index + 1;
+    const suffix = String(slideNumber).padStart(12, "0");
+    return {
+      id: `30000000-0000-0000-0000-${suffix}`,
+      slide_number: slideNumber,
+      title: slideNumber === 1 ? "AI & LLM Foundation" : `Day 1 · Slide ${slideNumber}`,
+      section: slideNumber === 1 ? "AI IN ACTION" : "COURSE MATERIAL",
+      normalized_text: slideNumber === 1
+        ? "Bạn đang dùng AI mỗi ngày — nhưng thực sự bên trong nó đang làm gì?"
+        : `Canonical content for slide ${slideNumber}.`,
+      blocks: [{
+        id: `40000000-0000-0000-0000-${suffix}`,
+        block_type: "paragraph",
+        reading_order: 1,
+        bullet_level: null,
+        text: slideNumber === 1
+          ? "Bạn đang dùng AI mỗi ngày — nhưng thực sự bên trong nó đang làm gì?"
+          : `Canonical content for slide ${slideNumber}.`,
+      }],
+    };
+  });
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.route("**/api/**", async (route) => {
@@ -26,10 +48,10 @@ test("slide study workflow is interactive", async ({ page }) => {
         active_version_id: "20000000-0000-0000-0000-000000000001",
         status: "ready",
         stage: "completed",
-        slide_count: 2,
+        slide_count: 29,
         textless_slide_count: 0,
-        expected_chunk_count: 2,
-        indexed_chunk_count: 2,
+        expected_chunk_count: 29,
+        indexed_chunk_count: 29,
         index_status: "in_sync",
         error_code: null,
         error_detail: null,
@@ -42,24 +64,7 @@ test("slide study workflow is interactive", async ({ page }) => {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({
         deck_id: "10000000-0000-0000-0000-000000000001",
         deck_version_id: "20000000-0000-0000-0000-000000000001",
-        slides: [
-          {
-            id: "30000000-0000-0000-0000-000000000001",
-            slide_number: 1,
-            title: "Jobs to be Done",
-            section: "FOUNDATIONS",
-            normalized_text: "Customers hire products to make progress.",
-            blocks: [{ id: "40000000-0000-0000-0000-000000000001", block_type: "paragraph", reading_order: 1, bullet_level: null, text: "Customers hire products to make progress." }],
-          },
-          {
-            id: "30000000-0000-0000-0000-000000000002",
-            slide_number: 2,
-            title: "Desired outcomes",
-            section: "METHOD",
-            normalized_text: "Define measurable customer outcomes.",
-            blocks: [{ id: "40000000-0000-0000-0000-000000000002", block_type: "paragraph", reading_order: 1, bullet_level: null, text: "Define measurable customer outcomes." }],
-          },
-        ],
+        slides: uploadedSlides,
       }) });
       return;
     }
@@ -68,8 +73,8 @@ test("slide study workflow is interactive", async ({ page }) => {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({
         conversation_id: "50000000-0000-0000-0000-000000000001",
         message_id: "60000000-0000-0000-0000-000000000001",
-        answer: "A job describes the progress a customer is trying to make.",
-        citations: [{ slide_id: "30000000-0000-0000-0000-000000000001", slide_number: 1, title: "Jobs to be Done", chunk_ids: [] }],
+        answer: "The course explains what happens inside modern AI and large language models.",
+        citations: [{ slide_id: "30000000-0000-0000-0000-000000000001", slide_number: 1, title: "AI & LLM Foundation", chunk_ids: [] }],
         confidence: "high",
         insufficient_evidence: false,
         missing_content_types: [],
@@ -219,22 +224,41 @@ test("slide study workflow is interactive", async ({ page }) => {
 
   await page.getByRole("button", { name: /Upload/ }).first().click();
   await expect(page.getByRole("heading", { name: "Upload a slide deck" })).toBeVisible();
-  await page.getByRole("dialog").locator('input[type="file"]').setInputFiles("../../tham-khao/Strategyn_JTBD_Playbook.pdf");
+  await page.getByRole("dialog").locator('input[type="file"]').setInputFiles("../../data/vlearn-pack/slides/d1-slide-hackathon.pdf");
   await expect(page.getByRole("heading", { name: "Upload a slide deck" })).toBeHidden();
-  await expect(page.locator(".deck-switcher b")).toContainText("Strategyn_JTBD_Playbook");
-  await expect(page.locator(".slide-canvas").getByText("Jobs to be Done")).toBeVisible();
+  await expect(page.locator(".deck-switcher b")).toContainText("d1-slide-hackathon");
+  await expect(page.locator(".slide-canvas .react-pdf__Page__canvas")).toBeVisible();
+  await expect(page.locator(".slide-canvas .react-pdf__Page__textContent span").first()).toBeAttached();
   expect(uploadBody).toContain("00000000-0000-0000-0000-000000000010");
 
-  await composer.fill("What is a job? @1");
+  await page.evaluate(() => {
+    const spans = [...document.querySelectorAll(".slide-canvas .react-pdf__Page__textContent span")];
+    const target = spans.find((item) => item.textContent.trim().length > 3);
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    target.closest(".slide-stage").dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      clientX: 520,
+      clientY: 390,
+    }));
+  });
+  await page.getByRole("button", { name: "Ask about selection" }).click();
+  await expect(page.getByText("Selected from slide 1")).toBeVisible();
+  await page.locator(".selection-attachment button").click();
+
+  await composer.fill("What is this course about? @1");
   await composer.press("Enter");
-  await expect(page.getByText("A job describes the progress a customer is trying to make.")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Slide 1 · Jobs to be Done/ })).toBeVisible();
+  await expect(page.getByText("The course explains what happens inside modern AI and large language models.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Slide 1 · AI & LLM Foundation/ })).toBeVisible();
   expect(chatPayload).toMatchObject({
     conversation_id: null,
     course_id: "00000000-0000-0000-0000-000000000010",
     deck_id: "10000000-0000-0000-0000-000000000001",
     current_slide_id: "30000000-0000-0000-0000-000000000001",
-    question: "What is a job? @1",
+    question: "What is this course about? @1",
     language: "vi",
     references: [{ start: 1, end: 1 }],
   });

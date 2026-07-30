@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Document } from "react-pdf";
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,6 +39,7 @@ import {
 } from "lucide-react";
 import { baseSlides, starterMessages } from "./mockData";
 import { answerQuestion, DEVELOPMENT_COURSE_ID, getDeckSlides, uploadDeck as uploadDeckFile, waitForDeck } from "./api";
+import PdfSlide from "./PdfSlide";
 import vinUniLogo from "./assets/vinuni-logo-source.png";
 
 const demoDeck = {
@@ -139,7 +141,9 @@ function AnnotationToolbar({ tool, expanded, onTool, onToggleMore, onImage, canU
   );
 }
 
-function SlideContent({ slide, compact = false }) {
+function SlideContent({ slide, compact = false, originalPdf = false }) {
+  if (originalPdf) return <PdfSlide pageNumber={slide.number} compact={compact} />;
+
   return (
     <div className={`slide-design slide-${slide.type} ${compact ? "is-compact" : ""}`}>
       <div className="slide-kicker">{slide.eyebrow}</div>
@@ -381,6 +385,7 @@ function App() {
   const annotationImageRef = useRef(null);
   const workspaceRef = useRef(null);
   const slideStageRef = useRef(null);
+  const previewUrlsRef = useRef(new Set());
 
   const currentDeck = useMemo(() => decks.find((deck) => deck.id === currentDeckId) || decks[0], [decks, currentDeckId]);
   const slide = currentDeck.slides[activeSlide - 1];
@@ -398,6 +403,11 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem("vlearn-chat-width", String(chatWidth));
   }, [chatWidth]);
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
+  }, []);
 
   useEffect(() => {
     if (!resizingChat) return undefined;
@@ -737,6 +747,8 @@ function App() {
     const name = file.name.replace(/\.[^.]+$/, "");
     const accepted = await uploadDeckFile(file, name);
     const deckId = accepted.deck_id;
+    const previewUrl = /\.pdf$/i.test(file.name) ? URL.createObjectURL(file) : null;
+    if (previewUrl) previewUrlsRef.current.add(previewUrl);
     const processingDeck = {
       id: deckId,
       versionId: accepted.deck_version_id,
@@ -747,6 +759,7 @@ function App() {
       status: "processing",
       stage: accepted.status,
       conversationId: null,
+      previewUrl,
     };
     setDecks((items) => [...items, processingDeck]);
     setMessagesByDeck((items) => ({ ...items, [deckId]: starterMessages }));
@@ -789,12 +802,33 @@ function App() {
   };
 
   const deleteDeck = (id) => {
+    const removedDeck = decks.find((item) => item.id === id);
+    if (removedDeck?.previewUrl) {
+      URL.revokeObjectURL(removedDeck.previewUrl);
+      previewUrlsRef.current.delete(removedDeck.previewUrl);
+    }
     setDecks((items) => items.filter((item) => item.id !== id));
     if (id === currentDeckId) {
       const next = decks.find((item) => item.id !== id);
       if (next) setCurrentDeckId(next.id);
     }
   };
+
+  const SlideWorkspaceFrame = currentDeck.previewUrl ? Document : "section";
+  const slideWorkspaceProps = currentDeck.previewUrl ? {
+    file: currentDeck.previewUrl,
+    loading: <div className="pdf-document-state"><LoaderCircle className="spin" size={22} /> Loading original slides…</div>,
+    error: <div className="pdf-document-state is-error"><AlertCircle size={22} /> Unable to render the original PDF.</div>,
+    onLoadError: () => {
+      const previewUrl = currentDeck.previewUrl;
+      URL.revokeObjectURL(previewUrl);
+      previewUrlsRef.current.delete(previewUrl);
+      setDecks((items) => items.map((deck) => deck.id === currentDeck.id ? {
+        ...deck,
+        previewUrl: null,
+      } : deck));
+    },
+  } : {};
 
   return (
     <div className="app-shell">
@@ -823,14 +857,14 @@ function App() {
         className={`workspace ${chatOpen ? "" : "chat-closed"} ${resizingChat ? "is-resizing" : ""}`}
         style={{ gridTemplateColumns: chatOpen ? `minmax(590px, 1fr) ${chatWidth}px` : "minmax(590px, 1fr) 0px" }}
       >
-        <section className={`slide-workspace ${isFullscreen ? "is-fullscreen" : ""}`}>
+        <SlideWorkspaceFrame {...slideWorkspaceProps} className={`slide-workspace ${isFullscreen ? "is-fullscreen" : ""}`}>
           <aside className="thumbnail-rail">
             <div className="rail-title"><span>SLIDES</span></div>
             <div className="thumbnail-list">
               {currentDeck.slides.map((item) => (
                 <button key={item.number} className={`thumbnail ${activeSlide === item.number ? "active" : ""}`} onClick={() => setActiveSlide(item.number)} aria-label={`Open slide ${item.number}`}>
                   <span className="thumb-number">{item.number}</span>
-                  <div className="thumb-canvas"><SlideContent slide={item} compact /></div>
+                  <div className="thumb-canvas"><SlideContent slide={item} compact originalPdf={Boolean(currentDeck.previewUrl)} /></div>
                 </button>
               ))}
               {!currentDeck.slides.length && (
@@ -886,7 +920,7 @@ function App() {
                     className={`slide-canvas annotation-${annotationTool}`}
                     style={{ width: `${100 / slideZoom}%`, height: `${100 / slideZoom}%`, transform: `scale(${slideZoom})` }}
                   >
-                    <SlideContent slide={slide} />
+                    <SlideContent slide={slide} originalPdf={Boolean(currentDeck.previewUrl)} />
                   <div
                     className={`annotation-layer tool-${annotationTool}`}
                     onPointerDown={handleAnnotationPointerDown}
@@ -938,7 +972,7 @@ function App() {
               )}
             </div>
           </div>
-        </section>
+        </SlideWorkspaceFrame>
 
         <div
           className={`panel-resizer ${chatOpen ? "" : "closed"}`}
