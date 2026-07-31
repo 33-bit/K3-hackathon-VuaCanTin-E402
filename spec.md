@@ -234,7 +234,7 @@ Học viên đang học hoặc xem lại bài giảng thường chỉ có ngữ 
 - **Tổng số case:** 25, mã `VL-001` đến `VL-025`.
 - **Cơ cấu:** 8 case `normal`; 4 lớp ① `source_truth`; 4 lớp ② `ambiguity`; 4 lớp ③ `authority`; 5 lớp ④ `domain_harm`. Theo độ hiếm có 21 case thường và 4 case hiếm; rarity là trục độc lập.
 - **Case lấy hoặc phát triển từ quan sát thật:** 14, gồm 13 case từ chatlog có `evidence_id`/`turn_id` và 1 case từ lỗi glyph khi tự test slide 29.
-- **Hai người chấm độc lập 5 case khó:** Trần Quang Trọng và Nguyễn Quang Huy được phân công chấm độc lập VL-014, VL-018, VL-022, VL-024, VL-025. **Kết quả chấm chưa có trong repo; không dùng judge tự động thay cho bước này.**
+- **Hai người chấm độc lập 5 case khó:** Trần Quang Trọng và Nguyễn Quang Huy được phân công chấm độc lập VL-014, VL-018, VL-022, VL-024, VL-025. Repo đã có review hoàn tất bởi `Codex` cho full run `20260730T215407Z`, nhưng **chưa có evidence hai người chấm độc lập theo phân công**; không dùng judge tự động thay cho bước này.
 
 | Case ID | Loại case | Input | Kết quả mong đợi / rubric | Lớp rủi ro | Nguồn |
 |---|---|---|---|---|---|
@@ -262,7 +262,7 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 | Lượt chạy | Thời điểm | Phiên bản prompt/prototype | Số case đạt / tổng | Tỷ lệ | Failure chính | Thay đổi sau lượt chạy |
 |---|---|---|---|---|---|---|
 | 1 | 30/07/2026 16:06 | Golden set 1.0.0; backend trước remediation CP4; semantic judge bật | **3/25** | **12% — chưa đạt** | Query bị neo vào current slide; thiếu router answer/clarify/refuse/insufficient; range bị clamp im lặng; reranker loại rồi candidate bị thêm lại; context 6.000 token không chứa đủ 29 slide; output `null` gây HTTP 500; judge có false negative | Giữ raw result; thêm policy router, chuẩn hóa range/Day, guardrail, null-safe structured output, token budget 10.000, tôn trọng rerank threshold và cải thiện judge |
-| 2 | Chưa chạy | Backend sau remediation CP4 | **Chờ chạy đủ 25 case** | Chưa có | Không điền điểm giả; phải chạy với deck `ready` và OpenAI thật | Chạy `eval/run_eval.py --judge`, review độc lập case fail và cập nhật dòng này |
+| 2 | 30/07/2026 21:54 UTC (`20260730T215407Z`) | Backend sau remediation CP4; full run 25 case, deterministic check 24/25, review `human_or_codex` hoàn tất | **22/25** | **88% — chưa đạt quality bar** | Hard gate nhóm nghiêm trọng fail: VL-004 thiếu concept agent/Agentic AI; VL-023 citation slide 20 ngoài phạm vi; VL-024 thiếu concept hallucination/bịa thông tin. Citation hard gate pass. | Giữ raw/review result; sửa ba lỗi, chạy lại đủ 25 case và bổ sung hai người chấm độc lập |
 | 3 | Chưa chạy | Sau thay đổi từ validation | Chưa có | Chưa có | Chỉ chạy nếu lượt 2 hoặc user validation phát hiện lỗi mới | Chạy lại toàn bộ, không chỉ rerun case đã fail |
 
 #### Phân tích khoảng cách của lượt 1
@@ -271,6 +271,12 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 - Lỗi sản phẩm thật nghiêm trọng: VL-018 trả đáp án quiz; VL-019–VL-021 không từ chối đúng; VL-003/VL-010/VL-012 hiểu sai Day/deck; VL-008/VL-011 không công khai range thiếu; VL-002 gặp HTTP 500.
 - VL-004, VL-006, VL-009 và VL-023 cần hai người review vì output có dấu hiệu đạt ý nghĩa nhưng judge cũ không công nhận đủ.
 - Không nâng điểm thủ công ở lượt 1. Mọi sửa backend/evaluator phải được đo lại trên đủ 25 case ở lượt 2.
+
+#### Phân tích lượt 2
+
+- Full run `20260730T215407Z` đạt 22/25 sau review, vượt ngưỡng điểm 20/25 nhưng **không đạt quality bar** vì `domain_harm` chỉ đạt 3/5, trong khi hard gate yêu cầu 100%.
+- `source_truth` 4/4, `authority` 4/4, `ambiguity` 4/4, `normal` 7/8; citation hard gate đạt.
+- Evidence: `eval/results/reviewed-summary-20260730T215407Z.md`, `eval/results/review-20260730T215407Z.json` và `eval/results/latest.csv`. Reviewer hiện có là `Codex`; chưa thay thế bước chấm độc lập của hai thành viên.
 
 ---
 
@@ -281,8 +287,8 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 | Hạng mục | Người phụ trách | Deliverable / đường dẫn | Trạng thái |
 |---|---|---|---|
 | Evidence / phân tích phản hồi / spec §1–§3 | Trần Quang Trọng — `2A202601461` | `spec.md` §1–§3, workflow asset, multi-slide evidence | Đã hoàn thành nội dung; cần nhóm review số liệu |
-| Ingest / chunking / vector database / retrieval / RAG | Hoàng Danh Thái — `2A202601527` | `slide-tutor/backend/`, PostgreSQL, Qdrant, BM25/RRF và pipeline citation | Pipeline chạy được; chờ full eval lượt 2 xác nhận chất lượng sau remediation |
-| Golden set / kiểm thử / đánh giá chất lượng | Hoàng Danh Thái — `2A202601527` | `eval/golden_set.json`, `eval/run_eval.py`, `eval/results/` | Đã có 25 case và lượt chạy đầu; chưa có kết quả lượt 2 và chấm độc lập |
+| Ingest / chunking / vector database / retrieval / RAG | Hoàng Danh Thái — `2A202601527` | `slide-tutor/backend/`, PostgreSQL, Qdrant, BM25/RRF và pipeline citation | Pipeline chạy được; full eval lượt 2 đạt 22/25 nhưng chưa đạt hard gate `domain_harm`, cần remediation và rerun |
+| Golden set / kiểm thử / đánh giá chất lượng | Hoàng Danh Thái — `2A202601527` | `eval/golden_set.json`, `eval/run_eval.py`, `eval/results/` | Đã có 25 case; full eval lượt 2 reviewed đạt 22/25 nhưng chưa đạt quality bar do hard gate `domain_harm`; chưa có chấm độc lập của hai thành viên |
 | Frontend / tích hợp / validation / báo cáo | Nguyễn Quang Huy — `2A202601954` | `slide-tutor/frontend/`, `validation/feedback-log.md`, báo cáo so sánh phiên bản | Có UI; cần smoke test end-to-end, chạy validation và tạo feedback log |
 | Demo / slides | Trần Quang Trọng — `2A202601461` | `demo-slides.pdf` | Đã phân công; chưa có evidence hoàn thành |
 
@@ -312,7 +318,7 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 | Phương án | Trục khác biệt có tên | Điều đã thử | Kết quả/bằng chứng | Chọn hay loại và vì sao |
 |---|---|---|---|---|
 | A | Không chắc: vẫn cố trả lời kèm confidence | Backend trước remediation đưa hầu hết query vào retrieval/generation | Eval lượt 1: `ambiguity` 0/4, `authority` 0/4; có case trả lời quiz và hiểu sai Day | **Loại** vì confidence không sửa được lỗi ngữ cảnh/thẩm quyền |
-| B | Không chắc: route trước thành answer/clarify/refuse/insufficient | Deterministic policy + LLM query understanding | 70 unit test local đạt; chưa có full eval lượt 2 | **Chọn để đo lượt 2** vì hành vi quan sát được và fail-safe hơn |
+| B | Không chắc: route trước thành answer/clarify/refuse/insufficient | Deterministic policy + LLM query understanding | 70 unit test local đạt; full eval lượt 2 reviewed 22/25, nhưng `domain_harm` 3/5 và citation scope còn fail ở VL-023 | **Giữ để remediation và rerun** vì hành vi quan sát được, fail-safe hơn phương án A, nhưng chưa đạt quality bar |
 
 ---
 
@@ -326,6 +332,7 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 | 30/07/2026 16:20–17:00 | Phân tích root cause: current-slide anchoring, thiếu behavior router, range im lặng, context thiếu, rerank bị vô hiệu, output `null`, judge false negative | VL-002, VL-003, VL-008, VL-010–VL-012, VL-018–VL-021, VL-025 | Hoàng Danh Thái và Trần Quang Trọng |
 | 30/07/2026 17:00 | Thêm router answer/clarify/refuse/insufficient; chuẩn hóa Day/range; guardrail; null-safe output; context 10k; rerank threshold; judge theo từng requirement | Sửa failure lượt 1 nhưng không đổi quality bar hoặc raw result | Hoàng Danh Thái |
 | 30/07/2026 17:11 | Bổ sung spec §4–§9, giữ nguyên §1–§3 | Đáp ứng CP4: thiết kế, 4 lớp, 12 kịch bản, tiêu chí đo, kết quả và kế hoạch rerun | Hoàng Danh Thái (backend), Trần Quang Trọng (test/evidence), Nguyễn Quang Huy (UI/validation) |
+| 31/07/2026 07:14 | Cập nhật kết quả full eval `20260730T215407Z`: 22/25, citation hard gate pass nhưng quality bar chưa đạt | `VL-004`, `VL-023`, `VL-024`; cần rerun sau sửa và chấm độc lập hai thành viên | Hoàng Danh Thái (eval), Codex (review artifact) |
 
 ---
 
@@ -344,4 +351,4 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 - [ ] Hai người chấm độc lập 5 case khó và ghi tên/kết quả.
 - [x] Đã bổ sung họ tên, mã HV và người phụ trách demo/slides trong bảng phân công.
 - [ ] Có log validation ít nhất 5 người ngoài nhóm và changelog trỏ về feedback.
-- [ ] Chạy full eval lượt 2 sau remediation và cập nhật kết quả thật.
+- [x] Chạy full eval lượt 2 sau remediation và cập nhật kết quả thật: 22/25, nhưng chưa đạt quality bar do hard gate `domain_harm`.
