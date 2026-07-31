@@ -87,6 +87,8 @@ class RetrievalService:
         language: str,
         explicit_ranges: Sequence[tuple[int, int]] = (),
         deck_title: str = "",
+        conversation_history: Sequence[dict[str, Any]] = (),
+        conversation_history_turns: int = 0,
     ) -> RetrievalResult:
         total_started = time.perf_counter()
         slides = await repositories.get_slides_for_version(session, deck_version_id=version.id)
@@ -123,6 +125,7 @@ class RetrievalService:
                     first_slide_title=first_slide_title,
                     slide_count=len(slides),
                     current_slide_number=current_slide.slide_number,
+                    conversation_history=conversation_history,
                 )
             except GenerationProviderUnavailableError:
                 query = QueryUnderstanding(rewritten_query=question)
@@ -156,6 +159,7 @@ class RetrievalService:
                     "reason_code": query.reason_code or "",
                     "scope": query.scope,
                     "intent": query.intent,
+                    "conversation_history_turns": conversation_history_turns,
                 },
                 timings_ms={
                     "query_understanding": understanding_ms,
@@ -218,6 +222,7 @@ class RetrievalService:
                     "reason_code": query.reason_code or "",
                     "scope": query.scope,
                     "intent": query.intent,
+                    "conversation_history_turns": conversation_history_turns,
                 },
                 timings_ms={
                     "query_understanding": understanding_ms,
@@ -425,6 +430,7 @@ class RetrievalService:
                 "reason_code": query.reason_code or "",
                 "scope": query.scope,
                 "intent": query.intent,
+                "conversation_history_turns": conversation_history_turns,
             },
             timings_ms={
                 "query_understanding": understanding_ms,

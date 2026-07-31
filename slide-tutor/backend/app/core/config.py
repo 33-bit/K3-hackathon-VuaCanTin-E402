@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     retrieval_context_limit: int = 6
     rerank_min_relevance: float = Field(default=0.35, ge=0, le=1)
     context_token_budget: int = Field(default=10_000, ge=1_000)
+    conversation_history_turn_limit: int = Field(default=12, ge=0, le=50)
+    conversation_history_token_budget: int = Field(default=6_000, ge=256, le=20_000)
+    conversation_summary_token_budget: int = Field(default=800, ge=0, le=4_000)
     query_understanding_cache_ttl_seconds: int = 3600
 
     auto_create_schema: bool = False

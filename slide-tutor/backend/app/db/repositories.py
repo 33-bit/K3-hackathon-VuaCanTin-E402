@@ -36,6 +36,15 @@ class ActiveDeckContext:
     version: DeckVersion
 
 
+@dataclass(frozen=True, slots=True)
+class ConversationHistoryMessage:
+    role: str
+    content: str
+    slide_number: int | None
+    slide_title: str | None
+    selected_text: str | None
+
+
 INDEX_MIGRATION_LOCK_KEY = 5_565_132_050_821_205
 
 
@@ -639,6 +648,43 @@ async def create_conversation_if_needed(
     return conversation
 
 
+async def get_recent_conversation_messages(
+    session: AsyncSession,
+    *,
+    conversation_id: UUID,
+    max_messages: int,
+) -> list[ConversationHistoryMessage]:
+    """Return recent user/assistant messages in chronological order.
+
+    Conversation ownership and deck/course isolation must be checked with
+    ``create_conversation_if_needed`` before this function is called.
+    """
+    if max_messages <= 0:
+        return []
+    rows = (
+        await session.execute(
+            select(Message, Slide.slide_number, Slide.title)
+            .outerjoin(Slide, Slide.id == Message.current_slide_id)
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.role.in_(("user", "assistant")),
+            )
+            .order_by(Message.created_at.desc(), Message.role.asc())
+            .limit(max_messages)
+        )
+    ).all()
+    return [
+        ConversationHistoryMessage(
+            role=message.role,
+            content=message.content,
+            slide_number=slide_number,
+            slide_title=slide_title,
+            selected_text=message.selected_text,
+        )
+        for message, slide_number, slide_title in reversed(rows)
+    ]
+
+
 async def persist_chat_turn(
     session: AsyncSession,
     *,
@@ -668,6 +714,17 @@ async def persist_chat_turn(
     session.add_all([user_message, assistant_message])
     await session.flush()
     return user_message, assistant_message
+
+
+def set_conversation_summary(
+    conversation: Conversation,
+    *,
+    summary_text: str,
+    summarized_turn_count: int,
+) -> None:
+    conversation.summary_text = summary_text
+    conversation.summary_turn_count = summarized_turn_count
+    conversation.summary_updated_at = datetime.now(UTC)
 
 
 async def create_retrieval_run(

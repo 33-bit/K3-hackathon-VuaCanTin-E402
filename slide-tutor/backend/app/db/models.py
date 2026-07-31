@@ -287,6 +287,11 @@ class Conversation(Base):
     deck_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("decks.id", ondelete="CASCADE"), nullable=False
     )
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary_turn_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

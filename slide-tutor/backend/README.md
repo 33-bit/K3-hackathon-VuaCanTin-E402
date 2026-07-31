@@ -9,6 +9,10 @@ Backend RAG cho Slide Tutor, dùng:
 
 Frontend không nằm trong phạm vi của thư mục này.
 
+Để hiểu toàn bộ pipeline từ kiến trúc, ingestion, retrieval, generation,
+grounding, citation đến từng file/function trong code, đọc
+[`MVP_PIPELINE.md`](MVP_PIPELINE.md).
+
 ## Chạy nhanh bằng Docker
 
 Yêu cầu: Docker Desktop đang chạy, Docker Compose v2 và một OpenAI API key.
@@ -79,6 +83,9 @@ bind-mount thư mục Windows vào `/qdrant/storage`.
 | `EMBEDDING_VERSION` | `te3large_1536_v1` |
 | `RETRIEVAL_SCHEMA_VERSION` | `qdrant_bm25_rrf_v1` |
 | `OPENAI_MODEL` | `gpt-4o-2024-08-06` cho query understanding, rerank, generation, grounding và repair |
+| `CONVERSATION_HISTORY_TURN_LIMIT` | Số lượt gần nhất dùng một lần để bootstrap các conversation cũ chưa có summary, mặc định `12` |
+| `CONVERSATION_HISTORY_TOKEN_BUDGET` | Hard limit cho `summary cũ + turn mới` trước khi gọi model, mặc định `6000` token |
+| `CONVERSATION_SUMMARY_TOKEN_BUDGET` | Giới hạn memory summary đưa vào prompt, mặc định `800` token |
 | `AUTH_PROXY_SHARED_SECRET` | Bắt buộc ngoài development |
 | `UPLOAD_DIR` | `data/uploads` |
 | `QUERY_UNDERSTANDING_CACHE_TTL_SECONDS` | `3600` |
@@ -207,9 +214,39 @@ $chatBody = @{
 $answer = Invoke-RestMethod `
   -Method Post `
   -Uri "http://127.0.0.1:8000/api/chat/answer" `
-  -ContentType "application/json" `
-  -Body $chatBody
+  -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($chatBody))
 $answer
+```
+
+Để hỏi tiếp trong cùng ngữ cảnh, frontend phải gửi lại `conversation_id` nhận
+được ở response trước. Backend chỉ đọc memory thuộc đúng user/course/deck.
+Sau mỗi lượt thành công, GPT-4o thực hiện
+`summary cũ + câu hỏi/câu trả lời mới → summary mới`, giới hạn input 6000 token
+và output 800 token, rồi lưu summary mới trong PostgreSQL. Vì vậy memory không
+bị bỏ và không bị giới hạn ở 12 lượt; `12` chỉ dùng để bootstrap conversation
+cũ được tạo trước migration. Summary ghi những gì người học đã hỏi, tutor đã
+trả lời, slide/chủ đề và điểm còn dang dở. Nó hỗ trợ hiểu follow-up nhưng không
+được dùng như evidence thay cho slide. Summary được cache theo input; nếu
+provider tạm lỗi, backend dùng rolling extractive fallback có cùng giới hạn.
+
+```powershell
+$followUpBody = @{
+  conversation_id = $answer.conversation_id
+  course_id = $courseId
+  deck_id = $accepted.deck_id
+  current_slide_id = $slides.slides[0].id
+  question = "Giải thích kỹ hơn và cho tôi một ví dụ"
+  language = "vi"
+  references = @()
+} | ConvertTo-Json -Depth 5
+
+$followUp = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8000/api/chat/answer" `
+  -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($followUpBody))
+$followUp
 ```
 
 ### Feedback và retrieval debug

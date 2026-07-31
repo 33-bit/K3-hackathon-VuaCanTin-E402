@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -8,11 +9,23 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.errors import DeckNotReadyError, NotFoundError, VectorIndexInconsistentError
+from app.core.errors import (
+    DeckNotReadyError,
+    GenerationProviderUnavailableError,
+    NotFoundError,
+    VectorIndexInconsistentError,
+)
 from app.db import repositories
 from app.models import ChatRequest, ChatResponse, Citation
 from app.retrieval.service import RetrievalService
 from app.services.openai_service import GeneratedAnswer, LLMProvider
+
+from .history import (
+    build_conversation_history,
+    build_fallback_conversation_summary,
+    build_fallback_rolling_summary,
+    compact_rolling_summary_input,
+)
 
 
 @dataclass(slots=True)
@@ -48,6 +61,55 @@ class ChatService:
                 "The active deck version is not compatible with the configured vector index"
             )
 
+        conversation = None
+        conversation_history: list[dict[str, Any]] = []
+        conversation_history_turns = 0
+        previous_summary = ""
+        summary_base_turn_count = 0
+        if request.conversation_id is not None:
+            conversation = await repositories.create_conversation_if_needed(
+                session,
+                conversation_id=request.conversation_id,
+                user_id=user_id,
+                course_id=request.course_id,
+                deck_id=request.deck_id,
+            )
+            if self.settings.conversation_summary_token_budget > 0:
+                previous_summary = conversation.summary_text.strip()
+                summary_base_turn_count = conversation.summary_turn_count
+                if not previous_summary:
+                    history_messages = await repositories.get_recent_conversation_messages(
+                        session,
+                        conversation_id=conversation.id,
+                        max_messages=self.settings.conversation_history_turn_limit * 2,
+                    )
+                    raw_history = build_conversation_history(
+                        history_messages,
+                        max_turns=self.settings.conversation_history_turn_limit,
+                        token_budget=self.settings.conversation_history_token_budget,
+                    )
+                    summary_base_turn_count = len(raw_history)
+                    if raw_history:
+                        try:
+                            previous_summary = await self.llm.summarize_conversation(
+                                conversation_history=raw_history,
+                                language=request.language,
+                                token_budget=self.settings.conversation_summary_token_budget,
+                            )
+                        except GenerationProviderUnavailableError:
+                            previous_summary = build_fallback_conversation_summary(
+                                raw_history,
+                                token_budget=self.settings.conversation_summary_token_budget,
+                            )
+                conversation_history_turns = summary_base_turn_count
+                if previous_summary:
+                    conversation_history = [
+                        {
+                            "summary": previous_summary,
+                            "source_turn_count": summary_base_turn_count,
+                        }
+                    ]
+
         retrieval_result = await self.retrieval.retrieve(
             session=session,
             version=context.version,
@@ -59,6 +121,8 @@ class ChatService:
             question=request.question,
             language=request.language,
             explicit_ranges=[(item.start, item.end) for item in request.references],
+            conversation_history=conversation_history,
+            conversation_history_turns=conversation_history_turns,
         )
         contexts = [
             {
@@ -98,6 +162,7 @@ class ChatService:
                 contexts=contexts,
                 coverage_outline=coverage_outline,
                 intent=retrieval_result.query.intent,
+                conversation_history=conversation_history,
             )
             generated = await self._validate_and_repair(
                 question=generation_question,
@@ -106,6 +171,7 @@ class ChatService:
                 coverage_outline=coverage_outline,
                 intent=retrieval_result.query.intent,
                 generated=generated,
+                conversation_history=conversation_history,
             )
             generated = _fallback_if_answer_is_empty(
                 generated=generated,
@@ -132,13 +198,50 @@ class ChatService:
             chunks=retrieval_result.chunks,
             slides=retrieval_result.slides,
         )
-        conversation = await repositories.create_conversation_if_needed(
-            session,
-            conversation_id=request.conversation_id,
-            user_id=user_id,
-            course_id=request.course_id,
-            deck_id=request.deck_id,
-        )
+        if conversation is None:
+            conversation = await repositories.create_conversation_if_needed(
+                session,
+                conversation_id=None,
+                user_id=user_id,
+                course_id=request.course_id,
+                deck_id=request.deck_id,
+            )
+        if self.settings.conversation_summary_token_budget > 0:
+            new_turn = {
+                "user_question": request.question,
+                "assistant_answer": generated.answer,
+                "selected_text": request.selected_text,
+                "citation_slides": [item.slide_number for item in citations],
+            }
+            summary_input, compact_turn = compact_rolling_summary_input(
+                previous_summary,
+                new_turn,
+                token_budget=self.settings.conversation_history_token_budget,
+            )
+            try:
+                updated_summary = await self.llm.update_conversation_summary(
+                    previous_summary=summary_input,
+                    new_turn=compact_turn,
+                    language=request.language,
+                    token_budget=self.settings.conversation_summary_token_budget,
+                )
+            except GenerationProviderUnavailableError:
+                updated_summary = build_fallback_rolling_summary(
+                    summary_input,
+                    compact_turn,
+                    token_budget=self.settings.conversation_summary_token_budget,
+                )
+            if not updated_summary:
+                updated_summary = build_fallback_rolling_summary(
+                    summary_input,
+                    compact_turn,
+                    token_budget=self.settings.conversation_summary_token_budget,
+                )
+            repositories.set_conversation_summary(
+                conversation,
+                summary_text=updated_summary,
+                summarized_turn_count=summary_base_turn_count + 1,
+            )
         retrieval_run = await repositories.create_retrieval_run(
             session,
             conversation_id=conversation.id,
@@ -167,6 +270,8 @@ class ChatService:
                 "embedding_model": self.settings.openai_embedding_model,
                 "embedding_dimensions": self.settings.openai_embedding_dimensions,
                 "retrieval_schema_version": context.version.retrieval_schema_version,
+                "conversation_history_turns": conversation_history_turns,
+                "conversation_history_summarized": bool(conversation_history),
             },
             inconsistency_json=None,
         )
@@ -201,6 +306,7 @@ class ChatService:
         coverage_outline: list[dict[str, Any]],
         intent: str,
         generated: GeneratedAnswer,
+        conversation_history: Sequence[dict[str, Any]] = (),
     ) -> GeneratedAnswer:
         if generated.insufficient_evidence:
             generated.citation_chunk_ids = []
@@ -215,6 +321,7 @@ class ChatService:
             question=question,
             coverage_outline=coverage_outline,
             intent=intent,
+            conversation_history=conversation_history,
         )
         if validation.valid and not contract_violations:
             if validation.supported_chunk_ids:
@@ -240,6 +347,7 @@ class ChatService:
             missing_topics=missing_topics,
             coverage_outline=coverage_outline,
             intent=intent,
+            conversation_history=conversation_history,
         )
         if repaired.insufficient_evidence:
             repaired.citation_chunk_ids = []
