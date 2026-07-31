@@ -282,9 +282,9 @@ Chi tiết input, expected behavior, concept bắt buộc, mệnh đề cấm, c
 |---|---|---|---|
 | Evidence / phân tích phản hồi / spec §1–§3 | Trần Quang Trọng — `2A202601461` | `spec.md` §1–§3, workflow asset, multi-slide evidence | Đã hoàn thành nội dung; cần nhóm review số liệu |
 | Ingest / chunking / vector database / retrieval / RAG | Hoàng Danh Thái — `2A202601527` | `slide-tutor/backend/`, PostgreSQL, Qdrant, BM25/RRF và pipeline citation | Pipeline chạy được; chờ full eval lượt 2 xác nhận chất lượng sau remediation |
-| Golden set / kiểm thử / đánh giá chất lượng | Trần Quang Trọng — `2A202601461` | `eval/golden_set.json`, `eval/run_eval.py`, `eval/results/` | Đã có 25 case và lượt chạy đầu; chưa có kết quả lượt 2 và chấm độc lập |
+| Golden set / kiểm thử / đánh giá chất lượng | Hoàng Danh Thái — `2A202601527` | `eval/golden_set.json`, `eval/run_eval.py`, `eval/results/` | Đã có 25 case và lượt chạy đầu; chưa có kết quả lượt 2 và chấm độc lập |
 | Frontend / tích hợp / validation / báo cáo | Nguyễn Quang Huy — `2A202601954` | `slide-tutor/frontend/`, `validation/feedback-log.md`, báo cáo so sánh phiên bản | Có UI; cần smoke test end-to-end, chạy validation và tạo feedback log |
-| Demo / slides | Hoàng Danh Thái — `2A202601527` | `demo-slides.pdf` | Đã phân công; chưa có evidence hoàn thành |
+| Demo / slides | Trần Quang Trọng — `2A202601461` | `demo-slides.pdf` | Đã phân công; chưa có evidence hoàn thành |
 
 > Phân công và mã học viên đã được nhóm xác nhận; trạng thái deliverable cập nhật theo evidence trong repo.
 
