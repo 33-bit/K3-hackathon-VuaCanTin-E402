@@ -335,13 +335,94 @@ function MentionMenu({ slideCount, onInsert, onClose }) {
   );
 }
 
+const normalizeAssistantMarkdown = (text) => String(text || "")
+  .replace(/\r\n?/g, "\n")
+  .replace(/([.!?])\s+(?=\d+\.\s+)/g, "$1\n")
+  .replace(/\s+(?=[-*]\s+\*\*)/g, "\n")
+  .trim();
+
+function InlineMarkdown({ children }) {
+  return String(children).split(/(\*\*.+?\*\*)/g).filter(Boolean).map((part, index) => (
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>
+      : <span key={`${part}-${index}`}>{part}</span>
+  ));
+}
+
+function MarkdownListItem({ text }) {
+  const titledItem = String(text).match(/^\*\*(.+?)\*\*\s*[-–—]\s*(.+)$/);
+  if (!titledItem) return <InlineMarkdown>{text}</InlineMarkdown>;
+
+  return (
+    <>
+      <strong className="answer-item-title">{titledItem[1]}</strong>
+      <span className="answer-item-detail"><InlineMarkdown>{titledItem[2]}</InlineMarkdown></span>
+    </>
+  );
+}
+
+function AssistantAnswer({ text }) {
+  const lines = normalizeAssistantMarkdown(text).split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const blocks = [];
+  let list = null;
+
+  const flushList = () => {
+    if (!list?.items.length) return;
+    const { type, items } = list;
+    const ListTag = type === "ordered" ? "ol" : "ul";
+    const listProps = type === "ordered" ? { start: items[0].number } : {};
+    blocks.push(<ListTag {...listProps} key={`list-${blocks.length}`}>
+      {items.map((item, index) => (
+        <li key={`${item.number ?? index}-${item.text}`}><MarkdownListItem text={item.text} /></li>
+      ))}
+    </ListTag>);
+    list = null;
+  };
+
+  const addListItem = (type, item) => {
+    if (list && list.type !== type) flushList();
+    if (!list) list = { type, items: [] };
+    list.items.push(item);
+  };
+
+  lines.forEach((line) => {
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushList();
+      const level = heading[1].length;
+      const HeadingTag = `h${level}`;
+      blocks.push(
+        <HeadingTag className={`answer-heading level-${level}`} key={`heading-${blocks.length}`}>
+          <InlineMarkdown>{heading[2]}</InlineMarkdown>
+        </HeadingTag>,
+      );
+      return;
+    }
+    const orderedItem = line.match(/^(\d+)\.\s+(.+)$/);
+    if (orderedItem) {
+      addListItem("ordered", { number: Number(orderedItem[1]), text: orderedItem[2] });
+      return;
+    }
+    const unorderedItem = line.match(/^[-*]\s+(.+)$/);
+    if (unorderedItem) {
+      addListItem("unordered", { text: unorderedItem[1] });
+      return;
+    }
+    flushList();
+    blocks.push(<p key={`paragraph-${blocks.length}`}><InlineMarkdown>{line}</InlineMarkdown></p>);
+  });
+  flushList();
+
+  return <div className="answer-markdown">{blocks}</div>;
+}
+
 function ChatMessage({ message, onCitation, onSuggestion }) {
   return (
     <div className={`message ${message.role}`}>
       {message.role === "assistant" && <div className="assistant-avatar"><Sparkles size={14} /></div>}
       <div className="message-content">
         {message.quote && <div className="message-quote">“{message.quote}”</div>}
-        <p>{message.text}</p>
+        {message.role === "assistant" ? <AssistantAnswer text={message.text} /> : <p>{message.text}</p>}
         {message.citations?.length > 0 && (
           <div className="citation-row">
             {message.citations.map((citation) => (

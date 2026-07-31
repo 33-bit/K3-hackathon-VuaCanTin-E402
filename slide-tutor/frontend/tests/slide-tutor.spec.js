@@ -73,7 +73,7 @@ test("slide study workflow is interactive", async ({ page }) => {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({
         conversation_id: "50000000-0000-0000-0000-000000000001",
         message_id: "60000000-0000-0000-0000-000000000001",
-        answer: "The course explains what happens inside modern AI and large language models.",
+        answer: "### Summary\n1. **AI foundations** - The course explains how modern AI works. 2. **Language models** - It introduces the systems behind generative tools. 3. **Responsible use** - It connects capability with practical judgment.\n### Key points\n- Apply ideas to real examples\n- Review the cited slide",
         citations: [{ slide_id: "30000000-0000-0000-0000-000000000001", slide_number: 1, title: "AI & LLM Foundation", chunk_ids: [] }],
         confidence: "high",
         insufficient_evidence: false,
@@ -251,7 +251,13 @@ test("slide study workflow is interactive", async ({ page }) => {
 
   await composer.fill("What is this course about? @1");
   await composer.press("Enter");
-  await expect(page.getByText("The course explains what happens inside modern AI and large language models.")).toBeVisible();
+  const formattedAnswer = page.locator(".answer-markdown").filter({ hasText: "AI foundations" });
+  await expect(formattedAnswer.locator(".answer-heading")).toHaveText(["Summary", "Key points"]);
+  await expect(formattedAnswer.locator("ol > li")).toHaveCount(3);
+  await expect(formattedAnswer.locator("ul > li")).toHaveCount(2);
+  await expect(formattedAnswer.locator("strong")).toHaveText(["AI foundations", "Language models", "Responsible use"]);
+  await expect(formattedAnswer.locator(".answer-item-detail").first()).toHaveText("The course explains how modern AI works.");
+  await expect(formattedAnswer).not.toContainText("**");
   await expect(page.getByRole("button", { name: /Slide 1 · AI & LLM Foundation/ })).toBeVisible();
   expect(chatPayload).toMatchObject({
     conversation_id: null,
@@ -267,7 +273,9 @@ test("slide study workflow is interactive", async ({ page }) => {
   await expect(page.locator(".deck-switcher b")).toContainText("d1-slide-hackathon");
   await expect(page.locator(".slide-canvas .react-pdf__Page__canvas")).toBeVisible();
   await expect(page.getByText("What is this course about? @1")).toBeVisible();
-  await expect(page.getByText("The course explains what happens inside modern AI and large language models.")).toBeVisible();
+  await expect(page.locator(".answer-markdown").filter({ hasText: "AI foundations" }).locator(".answer-heading")).toHaveCount(2);
+  await expect(page.locator(".answer-markdown").filter({ hasText: "AI foundations" }).locator("ol > li")).toHaveCount(3);
+  await expect(page.locator(".answer-markdown").filter({ hasText: "AI foundations" }).locator("ul > li")).toHaveCount(2);
 
   expect(errors).toEqual([]);
   await page.waitForTimeout(350);
