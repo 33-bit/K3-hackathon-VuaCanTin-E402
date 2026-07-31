@@ -335,14 +335,16 @@ function MentionMenu({ slideCount, onInsert, onClose }) {
   );
 }
 
-const normalizeAssistantMarkdown = (text) => String(text || "")
+const normalizeUnicode = (text) => String(text || "").normalize("NFC");
+
+const normalizeAssistantMarkdown = (text) => normalizeUnicode(text)
   .replace(/\r\n?/g, "\n")
   .replace(/([.!?])\s+(?=\d+\.\s+)/g, "$1\n")
   .replace(/\s+(?=[-*]\s+\*\*)/g, "\n")
   .trim();
 
 function InlineMarkdown({ children }) {
-  return String(children).split(/(\*\*.+?\*\*)/g).filter(Boolean).map((part, index) => (
+  return normalizeUnicode(children).split(/(\*\*.+?\*\*)/g).filter(Boolean).map((part, index) => (
     part.startsWith("**") && part.endsWith("**")
       ? <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>
       : <span key={`${part}-${index}`}>{part}</span>
@@ -421,8 +423,10 @@ function ChatMessage({ message, onCitation, onSuggestion }) {
     <div className={`message ${message.role}`}>
       {message.role === "assistant" && <div className="assistant-avatar"><Sparkles size={14} /></div>}
       <div className="message-content">
-        {message.quote && <div className="message-quote">“{message.quote}”</div>}
-        {message.role === "assistant" ? <AssistantAnswer text={message.text} /> : <p>{message.text}</p>}
+        {message.quote && <div className="message-quote">“{normalizeUnicode(message.quote)}”</div>}
+        {message.role === "assistant"
+          ? <AssistantAnswer text={message.text} />
+          : <p>{normalizeUnicode(message.text)}</p>}
         {message.citations?.length > 0 && (
           <div className="citation-row">
             {message.citations.map((citation) => (
